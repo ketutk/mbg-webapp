@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-dm-sans);
+  --font-display: var(--font-manrope);
+}
+
+@theme {
+  --color-ink: #173b66;
+  --color-muted: #728ba5;
+  --color-warn: #b8774e;
+  --color-warn-bg: #fff3e7;
+  --color-ok: #2f8f7b;
+  --color-ok-bg: #e3f6f1;
+
+  --shadow-card: 0 12px 34px #397bb014;
+
+  --animate-shimmer: shimmer 1.3s infinite linear;
+  --animate-fade: fade 0.15s ease-out;
+  --animate-pop: pop 0.18s ease-out;
+
+  @keyframes shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+  }
+}
+
+/* Element-level defaults only — all component styling lives in className utilities. */
+@layer base {
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 18% 0%, #e4f3ff 0, transparent 38%),
+      linear-gradient(180deg, #f4faff, #edf6ff 52%, #f5faff);
+    background-attachment: fixed;
+    color: var(--color-ink);
+    font: 15px var(--font-dm-sans), sans-serif;
+  }
+
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
