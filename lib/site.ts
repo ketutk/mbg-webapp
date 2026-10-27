@@ -4,13 +4,7 @@ export const SITE_TITLE = "MBG · Minggu Badminton Guys — Fair Badminton Match
 export const SITE_DESCRIPTION =
   "Create badminton game sessions, track games played per player, and get fair match recommendations so everyone gets equal court time.";
 
-export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-    : process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000");
+export const SITE_URL = "https://mbg.iketutkrisna.my.id";
 
 export const SITE_KEYWORDS = [
   "badminton",
