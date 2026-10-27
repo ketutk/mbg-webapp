@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { deleteSession, selectSession, useDB, useHydrated } from "@/lib/store";
 import { recommend } from "@/lib/match";
 import type { Session } from "@/lib/types";
@@ -30,9 +31,14 @@ export default function MatchApp() {
     <div className="mx-auto max-w-[1190px] px-[30px] pb-14 max-[860px]:px-3.5 max-[860px]:pb-10">
       <header className="flex min-h-[76px] items-center justify-between gap-3 border-b border-[#dcebf8]">
         <div className="flex items-center gap-3 font-display text-base font-extrabold tracking-[-0.35px]">
-          <div className="grid size-10 place-items-center rounded-[14px] bg-[linear-gradient(145deg,#85c4f5,#5398da)] text-xs font-extrabold text-white shadow-[0_5px_13px_#4898d834]">
-            MBG
-          </div>
+          <Image
+            src="/logo.jpg"
+            alt="MBG · Minggu Badminton Guys logo"
+            width={40}
+            height={40}
+            priority
+            className="size-10 rounded-[14px] object-cover shadow-[0_5px_13px_#4898d834]"
+          />
           <div>
             Minggu Badminton Guys
             <small className="mt-0.5 block font-sans text-[10px] font-semibold tracking-[0.65px] text-[#7d9ab4]">
@@ -54,29 +60,31 @@ export default function MatchApp() {
         </div>
       </header>
 
-      {!hydrated ? (
-        <div
-          className={cx(
-            card,
-            "mt-8 h-80 animate-shimmer bg-[linear-gradient(100deg,#fff_30%,#eef6fd_50%,#fff_70%)] bg-size-[200%_100%]",
-          )}
-          aria-busy="true"
-        />
-      ) : session ? (
-        <SessionView key={session.id} session={session} sessions={db.sessions} />
-      ) : (
-        <section className="mx-auto mt-[12vh] max-w-[560px] text-center">
-          <div className={eyebrow}>Game day</div>
-          <h1 className={h1}>Play fair. Play more.</h1>
-          <p className="mt-4 mb-[26px] leading-[1.6] text-muted">
-            Create a game session, add your players and tick off who has played. We&apos;ll
-            recommend the next match so everyone gets the same number of games.
-          </p>
-          <button className={btn("primary", "lg")} onClick={() => setCreating(true)}>
-            ＋ Create your first session
-          </button>
-        </section>
-      )}
+      <main>
+        {!hydrated ? (
+          <div
+            className={cx(
+              card,
+              "mt-8 h-80 animate-shimmer bg-[linear-gradient(100deg,#fff_30%,#eef6fd_50%,#fff_70%)] bg-size-[200%_100%]",
+            )}
+            aria-busy="true"
+          />
+        ) : session ? (
+          <SessionView key={session.id} session={session} sessions={db.sessions} />
+        ) : (
+          <section className="mx-auto mt-[12vh] max-w-[560px] text-center">
+            <div className={eyebrow}>Game day</div>
+            <h1 className={h1}>Play fair. Play more.</h1>
+            <p className="mt-4 mb-[26px] leading-[1.6] text-muted">
+              Create a game session, add your players and tick off who has played. We&apos;ll
+              recommend the next match so everyone gets the same number of games.
+            </p>
+            <button className={btn("primary", "lg")} onClick={() => setCreating(true)}>
+              ＋ Create your first session
+            </button>
+          </section>
+        )}
+      </main>
 
       {creating && <SessionDialog onClose={() => setCreating(false)} />}
     </div>
