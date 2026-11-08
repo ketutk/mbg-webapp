@@ -1,3 +1,21 @@
+export type Role = "SUPERADMIN" | "ADMIN";
+export type GameStatus = "QUEUED" | "ON_COURT" | "DONE";
+export type EntryType = "INCOME" | "EXPENSE";
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: Role;
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  role: Role;
+  createdAt: string;
+  deletedAt: string | null;
+}
+
 export interface Player {
   id: string;
   name: string;
@@ -9,10 +27,21 @@ export interface Game {
   id: string;
   /** Players who played (checked) in this game. */
   playerIds: string[];
-  /** Only set when the game was started from a recommendation. Used to avoid repeating partners. */
+  /** Only set when the game has a reliable 2v2 team split; cleared on manual tick edits. */
   teams?: [Team, Team];
-  /** Epoch ms when the game was added. Optional for games saved before this existed. */
+  /** Epoch ms when the game was added. */
   createdAt?: number;
+  /** Epoch ms when the game went onto a court. */
+  startedAt?: number;
+  /** Epoch ms when the game finished. */
+  finishedAt?: number;
+  status: GameStatus;
+  /** Set only while status is ON_COURT. */
+  courtNumber?: number;
+  /** Set only while status is QUEUED. */
+  queueOrder?: number;
+  /** Locked columns reject manual tick edits until unlocked. */
+  locked: boolean;
 }
 
 export interface Session {
@@ -20,11 +49,50 @@ export interface Session {
   name: string;
   /** yyyy-mm-dd */
   date: string;
+  courtCount: number;
   players: Player[];
+  /** Ordered by creation sequence (`seq`). */
   games: Game[];
 }
 
-export interface DB {
-  sessions: Session[];
-  currentId: string | null;
+export interface SessionListItem {
+  id: string;
+  name: string;
+  /** yyyy-mm-dd */
+  date: string;
+}
+
+export interface PublicGame {
+  id: string;
+  /** QUEUED = the "Queued" flag (A6). */
+  status: "ON_COURT" | "QUEUED";
+  courtNumber?: number;
+  queueOrder?: number;
+  playerIds: string[];
+  teams?: [Team, Team];
+}
+
+export interface SessionSummary extends SessionListItem {
+  courtCount: number;
+  /** `count` includes queued games; `queued` is how many of those are still QUEUED. */
+  players: { id: string; name: string; count: number; queued: number }[];
+  courts: PublicGame[];
+  queue: PublicGame[];
+}
+
+export interface TreasuryEntry {
+  id: string;
+  type: EntryType;
+  amount: number;
+  purpose: string;
+  /** yyyy-mm-dd */
+  date: string;
+  createdByName: string;
+}
+
+export interface TreasurySummary {
+  balance: number;
+  income: number;
+  expense: number;
+  entries: TreasuryEntry[];
 }

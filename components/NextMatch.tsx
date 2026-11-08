@@ -1,7 +1,8 @@
 "use client";
 
-import { addGame } from "@/lib/store";
 import { fairnessGap, getStats, type Recommendation } from "@/lib/match";
+import type { Player, Session, Team } from "@/lib/types";
+import { initials } from "./PlayerGrid";
 import {
   avatarOnCourt,
   btn,
@@ -14,53 +15,70 @@ import {
   pill,
   sub,
 } from "@/lib/ui";
-import { initials } from "./PlayerGrid";
-import type { Player, Session } from "@/lib/types";
 
-function Slot({ p, count }: { p: Player; count: number }) {
+function Slot({
+  p,
+  count,
+  queued,
+}: {
+  p: Player;
+  count: number;
+  queued: number;
+}) {
   return (
     <div className="flex items-center gap-2.5 rounded-xl border border-[#ffffff33] bg-[#ffffff26] px-2.5 py-2 backdrop-blur-[6px]">
       <span className={avatarOnCourt}>{initials(p.name)}</span>
-      <span className="min-w-0 flex-1 truncate text-[13px] font-extrabold">{p.name}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px] font-extrabold">
+        {p.name}
+      </span>
       <span className="text-right font-display text-[13px] font-extrabold">
-        {count} <small className="font-sans text-[9px] font-semibold opacity-85">played</small>
+        {count}{" "}
+        <small className="font-sans text-[9px] font-semibold opacity-85">
+          played{queued > 0 ? ` (+${queued} queued)` : ""}
+        </small>
       </span>
     </div>
   );
 }
 
-const teamLabel = "text-[9px] font-extrabold tracking-[1.4px] uppercase opacity-85";
+const teamLabel =
+  "text-[9px] font-extrabold tracking-[1.4px] uppercase opacity-85";
 
 export function NextMatch({
   session,
   rec,
   onShuffle,
-  onStarted,
+  onAssignRecommended,
 }: {
   session: Session;
   rec: Recommendation | null;
   onShuffle: () => void;
-  onStarted: () => void;
+  onAssignRecommended: (mode: "court" | "queue", teams: [Team, Team]) => void;
 }) {
   const stats = getStats(session);
-  const countOf = new Map(stats.map((s) => [s.player.id, s.count]));
+  const statOf = new Map(stats.map((s) => [s.player.id, s]));
   const { min, max, gap } = fairnessGap(stats);
 
-  function start() {
+  function trigger(mode: "court" | "queue") {
     if (!rec) return;
     const [t1, t2] = rec.teams;
-    addGame(
-      session.id,
-      rec.players.map((p) => p.id),
-      [
-        [t1[0].id, t1[1].id],
-        [t2[0].id, t2[1].id],
-      ],
-    );
-    onStarted();
+    onAssignRecommended(mode, [
+      [t1[0].id, t1[1].id],
+      [t2[0].id, t2[1].id],
+    ]);
   }
 
-  const slot = (p: Player) => <Slot key={p.id} p={p} count={countOf.get(p.id) ?? 0} />;
+  const slot = (p: Player) => {
+    const st = statOf.get(p.id);
+    return (
+      <Slot
+        key={p.id}
+        p={p}
+        count={st?.count ?? 0}
+        queued={st?.queued ?? 0}
+      />
+    );
+  };
 
   return (
     <section
@@ -103,12 +121,23 @@ export function NextMatch({
             </div>
           </div>
 
-          <div className="flex gap-2 px-[18px] pt-3.5 pb-1">
+          <div className="flex flex-wrap gap-2 px-[18px] pt-3.5 pb-1">
             <button id="shuffle" className={btn("light")} onClick={onShuffle}>
               ⟳ Shuffle
             </button>
-            <button id="start-match" className={cx(btn("primary"), "flex-1")} onClick={start}>
-              Start match · tick 4 players
+            <button
+              id="assign-court"
+              className={cx(btn("primary"), "flex-1")}
+              onClick={() => trigger("court")}
+            >
+              Assign to court
+            </button>
+            <button
+              id="add-to-queue"
+              className={btn("light")}
+              onClick={() => trigger("queue")}
+            >
+              ＋ Queue
             </button>
           </div>
 
@@ -128,7 +157,14 @@ export function NextMatch({
                   <span className="min-w-0 flex-1 truncate text-xs font-bold text-[#315d84]">
                     {s.player.name}
                   </span>
-                  <span className={pill(s.count === min && max > min ? "warn" : "default")}>
+                  {s.queued > 0 && (
+                    <span className={pill("warn")}>+{s.queued} queued</span>
+                  )}
+                  <span
+                    className={pill(
+                      s.count === min && max > min ? "warn" : "default",
+                    )}
+                  >
                     {s.count} played
                   </span>
                 </li>

@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+}
+
+enum GameStatus {
+  QUEUED
+  ON_COURT
+  DONE
+}
+
+enum TeamSide {
+  A
+  B
+}
+
+enum EntryType {
+  INCOME
+  EXPENSE
+}
+
+model User {
+  id             String      @id @default(cuid())
+  username       String      @unique
+  passwordHash   String
+  role           Role        @default(ADMIN)
+  failedAttempts Int         @default(0)
+  lockedUntil    DateTime?
+  deletedAt      DateTime?
+  createdById    String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  tokens         AuthToken[]
+}
+
+model AuthToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Session {
+  id          String   @id @default(cuid())
+  name        String
+  date        DateTime @db.Date
+  courtCount  Int      @default(1)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  players     Player[]
+  games       Game[]
+
+  @@index([date])
+}
+
+model Player {
+  id        String       @id @default(cuid())
+  sessionId String
+  name      String
+  nameKey   String
+  position  Int
+  session   Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  games     GamePlayer[]
+
+  @@unique([sessionId, nameKey])
+}
+
+model Game {
+  id          String       @id @default(cuid())
+  sessionId   String
+  seq         Int
+  status      GameStatus
+  courtNumber Int?
+  queueOrder  Int?
+  locked      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  session     Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  players     GamePlayer[]
+
+  @@unique([sessionId, seq])
+  @@unique([sessionId, courtNumber])
+  @@index([sessionId, status])
+}
+
+model GamePlayer {
+  gameId   String
+  playerId String
+  team     TeamSide?
+  game     Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  player   Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@id([gameId, playerId])
+}
+
+model TreasuryEntry {
+  id          String    @id @default(cuid())
+  type        EntryType @default(EXPENSE)
+  amount      Int
+  purpose     String
+  date        DateTime  @db.Date
+  createdById String
+  updatedById String?
+  deletedById String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([date])
+}

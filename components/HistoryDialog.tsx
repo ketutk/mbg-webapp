@@ -1,15 +1,10 @@
 "use client";
 
-import { Modal } from "./Modal";
+import { fmtTime } from "@/lib/format";
 import { removeGame } from "@/lib/store";
-import { btn, cx, empty, linkBtn, modalActions, pill } from "@/lib/ui";
 import type { Session } from "@/lib/types";
-
-const fmtTime = (ms: number) =>
-  new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-
-const chip =
-  "inline-block rounded-lg border border-[#e3f0fb] bg-[#f4faff] px-2 py-1 text-xs font-bold text-[#315d84]";
+import { Modal } from "./Modal";
+import { btn, chip, cx, empty, linkBtn, modalActions, pill } from "@/lib/ui";
 
 export function HistoryDialog({
   session,
@@ -27,11 +22,11 @@ export function HistoryDialog({
   return (
     <Modal
       title="Match history"
-      description={`${session.games.length} game${session.games.length === 1 ? "" : "s"} played in ${session.name}. Newest first.`}
+      description={`${session.games.length} match${session.games.length === 1 ? "" : "es"} in ${session.name}. Newest first.`}
       onClose={onClose}
     >
       {games.length === 0 ? (
-        <div className={empty}>No games yet. Start a match to see it here.</div>
+        <div className={empty}>No matches yet. Assign a match to see it here.</div>
       ) : (
         <ol className="-mx-[23px] max-h-[60vh] list-none overflow-auto border-t border-[#eef4f9]">
           {games.map(({ g, n }) => (
@@ -39,7 +34,7 @@ export function HistoryDialog({
               key={g.id}
               className="group border-b border-[#f0f5f9] px-[23px] py-3 hover:bg-[#f9fcff]"
             >
-              <div className="mb-2 flex items-center gap-2">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="grid size-7 place-items-center rounded-[9px] bg-[#eaf5ff] font-display text-xs font-extrabold text-[#337fc4]">
                   {n}
                 </span>
@@ -47,16 +42,33 @@ export function HistoryDialog({
                   Game {n}
                 </span>
                 {g.createdAt && (
-                  <span className="text-[11px] text-muted">· {fmtTime(g.createdAt)}</span>
+                  <span className="text-[11px] text-muted">
+                    · {fmtTime(g.createdAt)}
+                  </span>
                 )}
-                <span className={cx(pill(g.teams ? "default" : "warn"), "ml-auto")}>
-                  {g.teams ? "Recommended" : `${g.playerIds.length} ticked`}
-                </span>
+                {g.status === "QUEUED" && (
+                  <span className={pill("warn")}>Queued</span>
+                )}
+                {g.status === "ON_COURT" && (
+                  <span className={pill("ok")}>
+                    On court {g.courtNumber ?? ""}
+                  </span>
+                )}
+                {g.status === "DONE" && (
+                  <span className={pill("default")}>Finished</span>
+                )}
+                {g.locked && (
+                  <span className="text-[11px] text-muted" title="Column is locked">
+                    🔒
+                  </span>
+                )}
                 <button
-                  className={cx(linkBtn, "text-[#b5524f]")}
+                  className={cx(linkBtn, "ml-auto text-[#b5524f]")}
                   aria-label={`Remove game ${n}`}
                   onClick={() => {
-                    if (window.confirm(`Remove game ${n}?`)) removeGame(session.id, g.id);
+                    if (window.confirm(`Remove game ${n}?`)) {
+                      void removeGame(session.id, g.id);
+                    }
                   }}
                 >
                   Remove

@@ -1,9 +1,11 @@
-import type { Player, Session, Team } from "./types";
+import type { Game, Player, Session, Team } from "./types";
 
 export interface PlayerStat {
   player: Player;
-  /** How many games this player has played (checked) in the session. */
+  /** How many games this player has played (checked) in the session, including queued. */
   count: number;
+  /** How many currently QUEUED games this player is checked in. */
+  queued: number;
   /** Index of the last game played, -1 if never. */
   last: number;
 }
@@ -21,23 +23,62 @@ export interface Recommendation {
 export function getStats(session: Session): PlayerStat[] {
   return session.players.map((player) => {
     let count = 0;
+    let queued = 0;
     let last = -1;
     session.games.forEach((g, i) => {
       if (g.playerIds.includes(player.id)) {
         count++;
+        if (g.status === "QUEUED") queued++;
         last = i;
       }
     });
-    return { player, count, last };
+    return { player, count, queued, last };
   });
 }
 
-export function fairnessGap(stats: PlayerStat[]) {
+export function fairnessGap(stats: { count: number }[]) {
   if (!stats.length) return { min: 0, max: 0, gap: 0 };
   const counts = stats.map((s) => s.count);
   const min = Math.min(...counts);
   const max = Math.max(...counts);
   return { min, max, gap: max - min };
+}
+
+/** Map of playerId -> courtNumber for everyone currently ON_COURT. */
+export function busyPlayers(session: Session, excludeGameId?: string): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const g of session.games) {
+    if (g.status !== "ON_COURT" || g.id === excludeGameId) continue;
+    const court = g.courtNumber ?? 1;
+    for (const pid of g.playerIds) {
+      map.set(pid, court);
+    }
+  }
+  return map;
+}
+
+/** Courts 1..courtCount with their current ON_COURT game (if any). */
+export function courtsOf(
+  session: Session,
+): { courtNumber: number; game: Game | null }[] {
+  const byCourt = new Map<number, Game>();
+  for (const g of session.games) {
+    if (g.status === "ON_COURT" && g.courtNumber != null) {
+      byCourt.set(g.courtNumber, g);
+    }
+  }
+  const count = Math.max(1, session.courtCount || 1);
+  return Array.from({ length: count }, (_, i) => {
+    const courtNumber = i + 1;
+    return { courtNumber, game: byCourt.get(courtNumber) ?? null };
+  });
+}
+
+/** Queued matches ordered by queueOrder then creation sequence. */
+export function queueOf(session: Session): Game[] {
+  return session.games
+    .filter((g) => g.status === "QUEUED")
+    .sort((a, b) => (a.queueOrder ?? 0) - (b.queueOrder ?? 0));
 }
 
 /** Small deterministic hash -> [0, 1). Lets "shuffle" change tie-breaks reproducibly. */
@@ -72,9 +113,14 @@ function partnerHistory(session: Session) {
  *  1. fewest games played first
  *  2. then the player who has rested the longest (hasn't played for the most games)
  *  3. then a seeded random tie-break (change `seed` to shuffle ties)
+ * Players currently ON_COURT (`busy`) are excluded when at least 4 other players remain.
  * The four picked players are split into teams that repeat past partners the least.
  */
-export function recommend(session: Session, seed = 0): Recommendation | null {
+export function recommend(
+  session: Session,
+  seed = 0,
+  busy: ReadonlySet<string> = new Set(busyPlayers(session).keys()),
+): Recommendation | null {
   if (session.players.length < 4) return null;
 
   const ranked = getStats(session).sort(
@@ -84,7 +130,11 @@ export function recommend(session: Session, seed = 0): Recommendation | null {
       rand(a.player.id, seed) - rand(b.player.id, seed),
   );
 
-  const picked = ranked.slice(0, 4).map((s) => s.player);
+  const available = busy.size ? ranked.filter((s) => !busy.has(s.player.id)) : ranked;
+  const pool = available.length >= 4 ? available : ranked;
+
+  const picked = pool.slice(0, 4).map((s) => s.player);
+  const pickedSet = new Set(picked.map((p) => p.id));
   const [a, b, c, d] = picked;
   const history = partnerHistory(session);
 
@@ -108,7 +158,7 @@ export function recommend(session: Session, seed = 0): Recommendation | null {
   return {
     teams,
     players: picked,
-    queue: ranked.slice(4),
+    queue: ranked.filter((s) => !pickedSet.has(s.player.id)),
     level: fairnessGap(ranked).gap === 0,
   };
 }

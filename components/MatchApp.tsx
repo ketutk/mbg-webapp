@@ -1,110 +1,243 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Image from "next/image";
-import { deleteSession, selectSession, useDB, useHydrated } from "@/lib/store";
-import { recommend } from "@/lib/match";
-import type { Session } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import { fmtDate } from "@/lib/format";
+import { queueOf, recommend } from "@/lib/match";
+import {
+  deleteSession,
+  finishMatch,
+  removeGame,
+  reorderQueue,
+  selectSession,
+  startQueuedMatch,
+  useCurrentSessionId,
+  useHydrated,
+  useSessionDetail,
+  useSessionsList,
+} from "@/lib/store";
+import type { AuthUser, Game, Session, SessionListItem, Team } from "@/lib/types";
+import { AppHeader } from "./AppHeader";
+import { AssignDialog, type AssignDialogConfig } from "./AssignDialog";
+import { CourtBoard } from "./CourtBoard";
+import { HistoryDialog } from "./HistoryDialog";
+import { LoginDialog } from "./LoginDialog";
 import { NextMatch } from "./NextMatch";
 import { PlayerGrid } from "./PlayerGrid";
+import { QueuePanel } from "./QueuePanel";
 import { RosterDialog } from "./RosterDialog";
 import { SessionDialog } from "./SessionDialog";
-import { HistoryDialog } from "./HistoryDialog";
-import { btn, card, cx, eyebrow, h1 } from "@/lib/ui";
-
-const fmtDate = (d: string) =>
-  new Date(`${d}T12:00:00`).toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+import { SessionSettingsDialog } from "./SessionSettingsDialog";
+import { VisitorView } from "./VisitorView";
+import {
+  btn,
+  cx,
+  eyebrow,
+  h1,
+  selectInput,
+  shimmerCard,
+  toastBox,
+} from "@/lib/ui";
 
 export default function MatchApp() {
-  const db = useDB();
   const hydrated = useHydrated();
-  const [creating, setCreating] = useState(false);
+  const { user, loading: authLoading } = useAuth();
+  const { data: sessions = [], loading: listLoading } = useSessionsList();
+  const currentId = useCurrentSessionId();
 
-  const session = db.sessions.find((s) => s.id === db.currentId) ?? db.sessions.at(-1);
+  const [creating, setCreating] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [toast, setToast] = useState("");
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  function showToast(msg: string) {
+    setToast(msg);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setToast(""), 2600);
+  }
+
+  const activeId =
+    sessions.find((s) => s.id === currentId)?.id ?? sessions[0]?.id ?? null;
+  const isSuperadmin = user?.role === "SUPERADMIN";
 
   return (
     <div className="mx-auto max-w-[1190px] px-[30px] pb-14 max-[860px]:px-3.5 max-[860px]:pb-10">
-      <header className="flex min-h-[76px] items-center justify-between gap-3 border-b border-[#dcebf8]">
-        <div className="flex items-center gap-3 font-display text-base font-extrabold tracking-[-0.35px]">
-          <Image
-            src="/logo.jpg"
-            alt="MBG · Minggu Badminton Guys logo"
-            width={40}
-            height={40}
-            priority
-            className="size-10 rounded-[14px] object-cover shadow-[0_5px_13px_#4898d834]"
-          />
-          <div>
-            Minggu Badminton Guys
-            <small className="mt-0.5 block font-sans text-[10px] font-semibold tracking-[0.65px] text-[#7d9ab4]">
-              FAIR MATCH PLANNER
-            </small>
-          </div>
-        </div>
-        <div className="flex items-center gap-3.5">
-          <span className="flex items-center gap-[7px] text-xs text-muted max-[860px]:hidden">
-            <i className="size-[7px] rounded-full bg-[#53b8a3]" /> Saved on this device
-          </span>
-          <button
-            id="new-session"
-            className={btn("primary")}
-            onClick={() => setCreating(true)}
-          >
-            ＋ New session
-          </button>
-        </div>
-      </header>
+      <AppHeader
+        active="matches"
+        user={user}
+        onNewSession={() => setCreating(true)}
+        onToast={showToast}
+      />
 
       <main>
-        {!hydrated ? (
-          <div
-            className={cx(
-              card,
-              "mt-8 h-80 animate-shimmer bg-[linear-gradient(100deg,#fff_30%,#eef6fd_50%,#fff_70%)] bg-size-[200%_100%]",
-            )}
-            aria-busy="true"
-          />
-        ) : session ? (
-          <SessionView key={session.id} session={session} sessions={db.sessions} />
+        {!hydrated || authLoading || listLoading ? (
+          <div className={shimmerCard} aria-busy="true" />
+        ) : activeId ? (
+          user ? (
+            <AdminSessionContainer
+              key={activeId}
+              sessionId={activeId}
+              sessions={sessions}
+              user={user}
+              onToast={showToast}
+            />
+          ) : (
+            <VisitorView sessionId={activeId} sessions={sessions} />
+          )
         ) : (
           <section className="mx-auto mt-[12vh] max-w-[560px] text-center">
             <div className={eyebrow}>Game day</div>
             <h1 className={h1}>Play fair. Play more.</h1>
             <p className="mt-4 mb-[26px] leading-[1.6] text-muted">
-              Create a game session, add your players and tick off who has played. We&apos;ll
-              recommend the next match so everyone gets the same number of games.
+              {isSuperadmin
+                ? "Create a game session, add your players and assign matches to courts or the queue so everyone gets equal court time."
+                : user
+                  ? "No sessions yet. Ask a superadmin to create the first session."
+                  : "No game sessions have been created yet. Check back on game day or log in as an organiser."}
             </p>
-            <button className={btn("primary", "lg")} onClick={() => setCreating(true)}>
-              ＋ Create your first session
-            </button>
+            {isSuperadmin ? (
+              <button
+                className={btn("primary", "lg")}
+                onClick={() => setCreating(true)}
+              >
+                ＋ Create your first session
+              </button>
+            ) : !user ? (
+              <button
+                className={btn("primary", "lg")}
+                onClick={() => setLoggingIn(true)}
+              >
+                Admin login
+              </button>
+            ) : null}
           </section>
         )}
       </main>
 
-      {creating && <SessionDialog onClose={() => setCreating(false)} />}
+      {creating && isSuperadmin && (
+        <SessionDialog onClose={() => setCreating(false)} />
+      )}
+      {loggingIn && (
+        <LoginDialog
+          onClose={() => setLoggingIn(false)}
+          onLoggedIn={() => showToast("Logged in")}
+        />
+      )}
+
+      <div
+        className={cx(
+          toastBox,
+          toast ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0",
+        )}
+        role="status"
+      >
+        {toast}
+      </div>
     </div>
   );
 }
 
-function SessionView({ session, sessions }: { session: Session; sessions: Session[] }) {
-  const [seed, setSeed] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [toast, setToast] = useState("");
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+function AdminSessionContainer({
+  sessionId,
+  sessions,
+  user,
+  onToast,
+}: {
+  sessionId: string;
+  sessions: SessionListItem[];
+  user: AuthUser;
+  onToast: (msg: string) => void;
+}) {
+  const { data: session, loading } = useSessionDetail(sessionId);
 
+  if (loading || !session) {
+    return <div className={shimmerCard} aria-busy="true" />;
+  }
+
+  return (
+    <SessionView
+      session={session}
+      sessions={sessions}
+      user={user}
+      onToast={onToast}
+    />
+  );
+}
+
+function SessionView({
+  session,
+  sessions,
+  user,
+  onToast,
+}: {
+  session: Session;
+  sessions: SessionListItem[];
+  user: AuthUser;
+  onToast: (msg: string) => void;
+}) {
+  const [seed, setSeed] = useState(0);
+  const [editingRoster, setEditingRoster] = useState(false);
+  const [editingSettings, setEditingSettings] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [assignConfig, setAssignConfig] = useState<AssignDialogConfig | null>(
+    null,
+  );
+
+  const isSuperadmin = user.role === "SUPERADMIN";
   const rec = useMemo(() => recommend(session, seed), [session, seed]);
   const nextUp = useMemo(() => new Set(rec?.players.map((p) => p.id)), [rec]);
+  const queue = useMemo(() => queueOf(session), [session]);
 
-  function showToast(msg: string) {
-    setToast(msg);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(""), 2200);
+  async function handleFinishGame(game: Game) {
+    try {
+      await finishMatch(session.id, game.id);
+      onToast(`Court ${game.courtNumber ?? ""} finished`);
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not finish match");
+    }
+  }
+
+  async function handlePromoteNext(courtNumber: number) {
+    const first = queue[0];
+    if (!first) return;
+    try {
+      await startQueuedMatch(session.id, first.id, courtNumber);
+      onToast(`Moved queued match onto Court ${courtNumber}`);
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not start queued match");
+    }
+  }
+
+  async function handleMoveQueue(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= queue.length) return;
+    const ids = queue.map((g) => g.id);
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    try {
+      await reorderQueue(session.id, ids);
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not reorder queue");
+    }
+  }
+
+  async function handleRemoveQueued(game: Game) {
+    if (!window.confirm("Remove this queued match?")) return;
+    try {
+      await removeGame(session.id, game.id);
+      onToast("Queued match removed");
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not remove match");
+    }
+  }
+
+  async function handleDeleteSession() {
+    if (!window.confirm(`Delete session “${session.name}”?`)) return;
+    try {
+      await deleteSession(session.id);
+      onToast("Session deleted");
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not delete session");
+    }
   }
 
   return (
@@ -119,7 +252,7 @@ function SessionView({ session, sessions }: { session: Session; sessions: Sessio
             <span className="sr-only">Switch session</span>
             <select
               id="session-select"
-              className="max-w-[260px] rounded-xl border border-[#d9eafa] bg-white px-3 py-2.5 text-xs font-bold text-[#3c78aa]"
+              className={selectInput}
               value={session.id}
               onChange={(e) => selectSession(e.target.value)}
             >
@@ -130,22 +263,83 @@ function SessionView({ session, sessions }: { session: Session; sessions: Sessio
               ))}
             </select>
           </label>
-          <button id="match-history" className={btn("light")} onClick={() => setShowHistory(true)}>
+          <button
+            id="match-history"
+            className={btn("light")}
+            onClick={() => setShowHistory(true)}
+          >
             History · {session.games.length}
           </button>
-          <button id="edit-players" className={btn("light")} onClick={() => setEditing(true)}>
-            Edit players
-          </button>
-          <button
-            className={btn("danger")}
-            onClick={() => {
-              if (window.confirm(`Delete session “${session.name}”?`)) deleteSession(session.id);
-            }}
-          >
-            Delete
-          </button>
+          {isSuperadmin && (
+            <>
+              <button
+                id="edit-players"
+                className={btn("light")}
+                onClick={() => setEditingRoster(true)}
+              >
+                Edit players
+              </button>
+              <button
+                id="session-settings"
+                className={btn("light")}
+                onClick={() => setEditingSettings(true)}
+              >
+                Session settings
+              </button>
+              <button className={btn("danger")} onClick={handleDeleteSession}>
+                Delete
+              </button>
+            </>
+          )}
         </div>
       </section>
+
+      <CourtBoard
+        session={session}
+        onAssignCourt={(courtNumber) =>
+          setAssignConfig({
+            mode: "court",
+            courtNumber,
+            prefill: rec
+              ? [
+                  [rec.teams[0][0].id, rec.teams[0][1].id],
+                  [rec.teams[1][0].id, rec.teams[1][1].id],
+                ]
+              : undefined,
+          })
+        }
+        onPromoteNext={handlePromoteNext}
+        onEditGame={(game) =>
+          setAssignConfig({
+            mode: game.status === "ON_COURT" ? "court" : "queue",
+            editingGame: game,
+          })
+        }
+        onFinishGame={handleFinishGame}
+      />
+
+      <QueuePanel
+        session={session}
+        onAddQueue={() =>
+          setAssignConfig({
+            mode: "queue",
+            prefill: rec
+              ? [
+                  [rec.teams[0][0].id, rec.teams[0][1].id],
+                  [rec.teams[1][0].id, rec.teams[1][1].id],
+                ]
+              : undefined,
+          })
+        }
+        onEditGame={(game) =>
+          setAssignConfig({
+            mode: "queue",
+            editingGame: game,
+          })
+        }
+        onRemoveGame={handleRemoveQueued}
+        onMoveQueue={handleMoveQueue}
+      />
 
       <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)] items-start gap-[17px] max-[860px]:grid-cols-1">
         <div className="sticky top-4 order-2 max-[860px]:static max-[860px]:order-1">
@@ -154,32 +348,52 @@ function SessionView({ session, sessions }: { session: Session; sessions: Sessio
             rec={rec}
             onShuffle={() => {
               setSeed((s) => s + 1);
-              showToast("Shuffled — only players tied on games and rest can change");
+              onToast("Shuffled — only players tied on games and rest can change");
             }}
-            onStarted={() => {
-              setSeed(0);
-              showToast("Match added — 4 players ticked");
+            onAssignRecommended={(mode: "court" | "queue", teams: [Team, Team]) => {
+              setAssignConfig({ mode, prefill: teams });
             }}
           />
         </div>
         <div className="order-1 min-w-0 max-[860px]:order-2">
-          <PlayerGrid session={session} nextUp={nextUp} />
+          <PlayerGrid
+            session={session}
+            nextUp={nextUp}
+            isSuperadmin={isSuperadmin}
+            onToast={onToast}
+          />
         </div>
       </div>
 
-      {editing && <RosterDialog session={session} onClose={() => setEditing(false)} />}
+      {editingRoster && isSuperadmin && (
+        <RosterDialog
+          session={session}
+          onClose={() => setEditingRoster(false)}
+          onSaved={onToast}
+        />
+      )}
+      {editingSettings && isSuperadmin && (
+        <SessionSettingsDialog
+          session={session}
+          onClose={() => setEditingSettings(false)}
+          onSaved={onToast}
+        />
+      )}
       {showHistory && (
         <HistoryDialog session={session} onClose={() => setShowHistory(false)} />
       )}
-      <div
-        className={cx(
-          "pointer-events-none fixed bottom-[22px] left-1/2 z-30 max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-xl bg-[#285c8d] px-4 py-[11px] text-xs text-white shadow-[0_8px_22px_#23598b35] transition-all duration-200",
-          toast ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0",
-        )}
-        role="status"
-      >
-        {toast}
-      </div>
+      {assignConfig && (
+        <AssignDialog
+          session={session}
+          rec={rec}
+          config={assignConfig}
+          onClose={() => setAssignConfig(null)}
+          onSaved={(msg) => {
+            setSeed(0);
+            onToast(msg);
+          }}
+        />
+      )}
     </>
   );
 }

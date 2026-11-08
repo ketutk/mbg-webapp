@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Modal } from "./Modal";
 import { createSession, parseNames, todayISO } from "@/lib/store";
+import { sessionInput } from "@/lib/schemas";
+import { Modal } from "./Modal";
 import {
   btn,
+  errorNotice,
   field,
   fieldInput,
   fieldLabel,
@@ -17,23 +19,41 @@ import {
 export function SessionDialog({ onClose }: { onClose: () => void }) {
   const [date, setDate] = useState(todayISO);
   const [name, setName] = useState("");
+  const [courtCount, setCourtCount] = useState(1);
   const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const names = parseNames(text);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    createSession({
+    setError("");
+    const parsed = sessionInput.safeParse({
       name: name.trim() || `Game day ${date}`,
       date,
+      courtCount,
       names,
     });
-    onClose();
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? "Invalid session details");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await createSession(parsed.data);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create session");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <Modal
       title="New game session"
-      description="Name the session and paste your players, one per line. Numbered lists work too."
+      description="Name the session, set your court count, and paste your players one per line."
       onClose={onClose}
     >
       <form onSubmit={submit}>
@@ -62,6 +82,19 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
           </label>
         </div>
         <label className={field}>
+          <span className={fieldLabel}>Courts available (1–8)</span>
+          <input
+            id="session-courts"
+            className={fieldInput}
+            type="number"
+            min={1}
+            max={8}
+            value={courtCount}
+            onChange={(e) => setCourtCount(Number(e.target.value) || 1)}
+            required
+          />
+        </label>
+        <label className={field}>
           <span className={fieldLabel}>Players</span>
           <textarea
             id="session-players"
@@ -78,12 +111,23 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
               }`
             : "No players yet — you can also add them later."}
         </div>
+        {error && <div className={errorNotice}>{error}</div>}
         <div className={modalActions}>
-          <button type="button" className={btn("light")} onClick={onClose}>
+          <button
+            type="button"
+            className={btn("light")}
+            onClick={onClose}
+            disabled={busy}
+          >
             Cancel
           </button>
-          <button type="submit" id="create-session" className={btn("primary")}>
-            Create session
+          <button
+            type="submit"
+            id="create-session"
+            className={btn("primary")}
+            disabled={busy}
+          >
+            {busy ? "Creating…" : "Create session"}
           </button>
         </div>
       </form>
