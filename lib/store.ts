@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { todayISO } from "./format";
 import { queryClient, queryKeys } from "./query";
@@ -20,6 +20,7 @@ import type {
   SessionSummary,
   Team,
   TreasuryEntry,
+  TreasuryFilterParams,
   TreasurySummary,
 } from "./types";
 
@@ -154,10 +155,21 @@ export function useSessionDetail(sessionId: string | null) {
   };
 }
 
-export function useTreasury() {
+export function useTreasury(params?: TreasuryFilterParams) {
   const query = useQuery({
-    queryKey: queryKeys.treasury,
-    queryFn: () => api<TreasurySummary>("/treasury"),
+    queryKey: queryKeys.treasurySummary(params),
+    queryFn: () => {
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set("from", params.from);
+      if (params?.to) sp.set("to", params.to);
+      if (params?.type && params.type !== "ALL") sp.set("type", params.type);
+      if (params?.q?.trim()) sp.set("q", params.q.trim());
+      if (params?.page && params.page > 1) sp.set("page", String(params.page));
+      if (params?.pageSize) sp.set("pageSize", String(params.pageSize));
+      const qs = sp.toString();
+      return api<TreasurySummary>(qs ? `/treasury?${qs}` : "/treasury");
+    },
+    placeholderData: keepPreviousData,
   });
 
   return {

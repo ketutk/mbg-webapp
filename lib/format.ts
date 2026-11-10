@@ -26,3 +26,10 @@ export function todayISO(): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+export const fmtMonth = (ym: string): string =>
+  new Date(`${ym}-15T12:00:00`).toLocaleDateString("en-GB", {
+    month: "short",
+    year: "numeric",
+  });
+
+

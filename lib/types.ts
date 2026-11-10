@@ -90,9 +90,46 @@ export interface TreasuryEntry {
   createdByName: string;
 }
 
-export interface TreasurySummary {
-  balance: number;
+export interface TreasuryMonthlyBucket {
+  /** yyyy-mm */
+  month: string;
   income: number;
   expense: number;
+}
+
+export interface TreasuryFilterParams {
+  from?: string;
+  to?: string;
+  type?: "ALL" | EntryType;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface TreasurySummary {
+  /** All-time club balance (income - expense). */
+  balance: number;
+  /** All-time club income. */
+  income: number;
+  /** All-time club expense. */
+  expense: number;
+  /** Filtered period income. */
+  periodIncome: number;
+  /** Filtered period expense. */
+  periodExpense: number;
+  /** Filtered period net (periodIncome - periodExpense). */
+  periodNet: number;
+  /** Filtered income transaction count. */
+  periodIncomeCount: number;
+  /** Filtered expense transaction count. */
+  periodExpenseCount: number;
+  /** Monthly breakdown for the dashboard chart (oldest to newest, up to 6 months). */
+  monthly: TreasuryMonthlyBucket[];
+  /** Paginated entries matching the current filter. */
   entries: TreasuryEntry[];
+  /** Pagination metadata. */
+  totalEntries: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }

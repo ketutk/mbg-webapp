@@ -1,29 +1,130 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { fmtDate, formatIDR } from "@/lib/format";
+import { fmtDate, fmtMonth, formatIDR, todayISO } from "@/lib/format";
 import { removeTreasuryEntry, useHydrated, useTreasury } from "@/lib/store";
-import type { EntryType, TreasuryEntry } from "@/lib/types";
+import type { EntryType, TreasuryEntry, TreasuryMonthlyBucket } from "@/lib/types";
 import { AppHeader } from "./AppHeader";
 import { LoginDialog } from "./LoginDialog";
 import { TreasuryEntryDialog } from "./TreasuryEntryDialog";
 import {
   btn,
   card,
+  cardFoot,
   cardHead,
   cardTitle,
   cx,
   empty,
   eyebrow,
+  fieldInput,
   h1,
   linkBtn,
   pill,
+  selectInput,
   shimmerCard,
   spinner,
   sub,
   toastBox,
 } from "@/lib/ui";
+
+type PeriodPreset =
+  | "all"
+  | "this-month"
+  | "last-month"
+  | "last-30"
+  | "last-90"
+  | "this-year"
+  | "month"
+  | "custom";
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function getMonthRange(ym: string): { from: string; to: string } {
+  const [yStr, mStr] = ym.split("-");
+  const y = Number(yStr) || new Date().getFullYear();
+  const m = Number(mStr) || 1;
+  const lastDay = new Date(y, m, 0).getDate();
+  return {
+    from: `${y}-${pad2(m)}-01`,
+    to: `${y}-${pad2(m)}-${pad2(lastDay)}`,
+  };
+}
+
+function shiftMonth(ym: string, delta: number): string {
+  const [yStr, mStr] = ym.split("-");
+  const d = new Date(Number(yStr) || 2026, (Number(mStr) || 1) - 1 + delta, 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+
+function addDaysISO(iso: string, deltaDays: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + deltaDays);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function computePresetDates(
+  preset: PeriodPreset,
+  selectedMonth: string,
+  customFrom: string,
+  customTo: string,
+): { from?: string; to?: string; label: string } {
+  const today = todayISO();
+  const currentYm = today.slice(0, 7);
+
+  switch (preset) {
+    case "all":
+      return { label: "All time" };
+    case "this-month": {
+      const r = getMonthRange(currentYm);
+      return { ...r, label: `This month (${fmtMonth(currentYm)})` };
+    }
+    case "last-month": {
+      const prevYm = shiftMonth(currentYm, -1);
+      const r = getMonthRange(prevYm);
+      return { ...r, label: `Last month (${fmtMonth(prevYm)})` };
+    }
+    case "last-30":
+      return {
+        from: addDaysISO(today, -29),
+        to: today,
+        label: "Last 30 days",
+      };
+    case "last-90":
+      return {
+        from: addDaysISO(today, -89),
+        to: today,
+        label: "Last 90 days",
+      };
+    case "this-year": {
+      const year = today.slice(0, 4);
+      return {
+        from: `${year}-01-01`,
+        to: `${year}-12-31`,
+        label: `Year ${year}`,
+      };
+    }
+    case "month": {
+      const r = getMonthRange(selectedMonth);
+      return { ...r, label: fmtMonth(selectedMonth) };
+    }
+    case "custom":
+      return {
+        from: customFrom || undefined,
+        to: customTo || undefined,
+        label:
+          customFrom && customTo
+            ? `${fmtDate(customFrom)} – ${fmtDate(customTo)}`
+            : customFrom
+              ? `From ${fmtDate(customFrom)}`
+              : customTo
+                ? `Until ${fmtDate(customTo)}`
+                : "Custom range",
+      };
+  }
+}
 
 export default function TreasuryApp() {
   const hydrated = useHydrated();
@@ -118,11 +219,62 @@ function TreasuryContent({
   onEdit: (entry: TreasuryEntry) => void;
   onToast: (msg: string) => void;
 }) {
-  const { data: treasury, loading } = useTreasury();
+  const defaultYm = useMemo(() => todayISO().slice(0, 7), []);
+  const [preset, setPreset] = useState<PeriodPreset>("all");
+  const [selectedMonth, setSelectedMonth] = useState<string>(defaultYm);
+  const [customFrom, setCustomFrom] = useState<string>("");
+  const [customTo, setCustomTo] = useState<string>("");
+  const [typeFilter, setTypeFilter] = useState<"ALL" | EntryType>("ALL");
+  const [searchText, setSearchText] = useState<string>("");
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  if (loading || !treasury) {
+  const periodRange = useMemo(
+    () => computePresetDates(preset, selectedMonth, customFrom, customTo),
+    [preset, selectedMonth, customFrom, customTo],
+  );
+
+  const filterParams = useMemo(
+    () => ({
+      from: periodRange.from,
+      to: periodRange.to,
+      type: typeFilter,
+      q: searchText.trim() || undefined,
+      page,
+      pageSize,
+    }),
+    [periodRange.from, periodRange.to, typeFilter, searchText, page, pageSize],
+  );
+
+  const { data: treasury, loading, fetching } = useTreasury(filterParams);
+
+  if (loading && !treasury) {
     return <div className={shimmerCard} aria-busy="true" />;
+  }
+
+  if (!treasury) return null;
+
+  const hasActiveFilters =
+    preset !== "all" || typeFilter !== "ALL" || searchText.trim().length > 0;
+
+  function resetFilters() {
+    setPreset("all");
+    setTypeFilter("ALL");
+    setSearchText("");
+    setCustomFrom("");
+    setCustomTo("");
+    setPage(1);
+  }
+
+  function handleSelectMonthFromChart(ym: string) {
+    if (preset === "month" && selectedMonth === ym) {
+      setPreset("all");
+    } else {
+      setSelectedMonth(ym);
+      setPreset("month");
+    }
+    setPage(1);
   }
 
   async function handleDelete(entry: TreasuryEntry) {
@@ -138,15 +290,38 @@ function TreasuryContent({
     }
   }
 
+  const allTimeVolume = treasury.income + treasury.expense;
+  const incomeRatioPct =
+    allTimeVolume > 0 ? Math.round((treasury.income / allTimeVolume) * 100) : 50;
+
+  const startRow =
+    treasury.totalEntries === 0 ? 0 : (treasury.page - 1) * treasury.pageSize + 1;
+  const endRow = Math.min(
+    treasury.totalEntries,
+    treasury.page * treasury.pageSize,
+  );
+
+  const presetOptions: { id: PeriodPreset; label: string }[] = [
+    { id: "all", label: "All time" },
+    { id: "this-month", label: "This month" },
+    { id: "last-month", label: "Last month" },
+    { id: "last-30", label: "Last 30d" },
+    { id: "last-90", label: "Last 90d" },
+    { id: "this-year", label: "This year" },
+    { id: "month", label: "By month" },
+    { id: "custom", label: "Custom range" },
+  ];
+
   return (
     <>
-      <section className="mt-8 mb-[22px] flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
+      {/* Top Hero Header */}
+      <section className="mt-8 mb-5 flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
         <div>
           <div className={eyebrow}>Club treasury</div>
           <h1 className={h1}>{formatIDR(treasury.balance)}</h1>
           <div className="mt-1 text-xs text-muted">
-            Cash left · Income {formatIDR(treasury.income)} · Spent{" "}
-            {formatIDR(treasury.expense)}
+            All-time cash left · Total income {formatIDR(treasury.income)} · Total
+            spent {formatIDR(treasury.expense)}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -167,6 +342,126 @@ function TreasuryContent({
         </div>
       </section>
 
+      {/* Dashboard KPI Cards */}
+      <section
+        aria-label="Treasury overview"
+        className="mb-5 grid grid-cols-4 gap-3.5 max-[980px]:grid-cols-2 max-[540px]:grid-cols-1"
+      >
+        {/* Card 1: All-Time Cash Left */}
+        <div className={cx(card, "p-4")}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-extrabold text-[#5d7f9d]">
+              All-time cash left
+            </span>
+            <span className={pill(treasury.balance >= 0 ? "ok" : "danger")}>
+              {treasury.balance >= 0 ? "Healthy" : "Deficit"}
+            </span>
+          </div>
+          <div className="mt-2 font-display text-xl font-extrabold tracking-[-0.5px] text-[#183e6b]">
+            {formatIDR(treasury.balance)}
+          </div>
+          <div className="mt-3">
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-[#f3dede]">
+              <div
+                className="h-full bg-ok transition-all duration-300"
+                style={{ width: `${incomeRatioPct}%` }}
+              />
+            </div>
+            <div className="mt-1.5 flex justify-between text-[10px] font-bold text-muted">
+              <span className="text-ok">In {incomeRatioPct}%</span>
+              <span className="text-[#b5524f]">
+                Out {allTimeVolume > 0 ? 100 - incomeRatioPct : 50}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Period Income */}
+        <div className={cx(card, "p-4")}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-extrabold text-[#5d7f9d]">
+              Period income
+            </span>
+            <span className={pill("ok")}>
+              {treasury.periodIncomeCount} tx
+            </span>
+          </div>
+          <div className="mt-2 font-display text-xl font-extrabold tracking-[-0.5px] text-ok">
+            +{formatIDR(treasury.periodIncome)}
+          </div>
+          <div className="mt-2 truncate text-[11px] text-muted">
+            {periodRange.label}
+          </div>
+        </div>
+
+        {/* Card 3: Period Spent */}
+        <div className={cx(card, "p-4")}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-extrabold text-[#5d7f9d]">
+              Period spent
+            </span>
+            <span className={pill("warn")}>
+              {treasury.periodExpenseCount} tx
+            </span>
+          </div>
+          <div className="mt-2 font-display text-xl font-extrabold tracking-[-0.5px] text-[#b5524f]">
+            −{formatIDR(treasury.periodExpense)}
+          </div>
+          <div className="mt-2 truncate text-[11px] text-muted">
+            {periodRange.label}
+          </div>
+        </div>
+
+        {/* Card 4: Period Net Cashflow */}
+        <div className={cx(card, "p-4")}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-extrabold text-[#5d7f9d]">
+              Period net flow
+            </span>
+            <span
+              className={pill(
+                treasury.periodNet > 0
+                  ? "ok"
+                  : treasury.periodNet < 0
+                    ? "warn"
+                    : "default",
+              )}
+            >
+              {treasury.periodNet > 0
+                ? "Surplus"
+                : treasury.periodNet < 0
+                  ? "Net spend"
+                  : "Even"}
+            </span>
+          </div>
+          <div
+            className={cx(
+              "mt-2 font-display text-xl font-extrabold tracking-[-0.5px]",
+              treasury.periodNet > 0
+                ? "text-ok"
+                : treasury.periodNet < 0
+                  ? "text-[#b5524f]"
+                  : "text-[#183e6b]",
+            )}
+          >
+            {treasury.periodNet > 0 ? "+" : treasury.periodNet < 0 ? "−" : ""}
+            {formatIDR(Math.abs(treasury.periodNet))}
+          </div>
+          <div className="mt-2 truncate text-[11px] text-muted">
+            {treasury.periodIncomeCount + treasury.periodExpenseCount} matching
+            entries
+          </div>
+        </div>
+      </section>
+
+      {/* Monthly Cashflow Breakdown Chart */}
+      <MonthlyCashflowCard
+        monthly={treasury.monthly}
+        activeMonth={preset === "month" ? selectedMonth : undefined}
+        onSelectMonth={handleSelectMonthFromChart}
+      />
+
+      {/* Filter & Transactions Table Card */}
       <section className={card} aria-labelledby="entries-title">
         <div className={cardHead}>
           <div>
@@ -174,18 +469,193 @@ function TreasuryContent({
               Transactions
             </h2>
             <div className={sub}>
-              Newest date first. All amounts in whole Indonesian Rupiah (IDR).
+              Filter by periodical preset, month, entry type, or keyword.
             </div>
           </div>
-          <span className={pill("default")}>
-            {treasury.entries.length} entr
-            {treasury.entries.length === 1 ? "y" : "ies"}
-          </span>
+          <div className="flex items-center gap-2">
+            {fetching && (
+              <span
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#5089b7]"
+                aria-live="polite"
+              >
+                <span className={spinner} />
+                Updating…
+              </span>
+            )}
+            <span className={pill("default")}>
+              {treasury.totalEntries} entr
+              {treasury.totalEntries === 1 ? "y" : "ies"}
+            </span>
+          </div>
         </div>
 
+        {/* Periodical & Search Filter Toolbar */}
+        <div className="border-t border-[#eef4f9] bg-[#fafdff] px-[22px] py-3.5 max-[860px]:px-[15px]">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            {/* Period preset pills */}
+            <div
+              className="flex flex-wrap items-center gap-1.5"
+              role="group"
+              aria-label="Time period filter"
+            >
+              {presetOptions.map((opt) => {
+                const active = preset === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setPreset(opt.id);
+                      setPage(1);
+                    }}
+                    className={cx(
+                      "rounded-lg px-2.5 py-1.5 text-[11px] font-extrabold transition-colors",
+                      active
+                        ? "bg-[#204a74] text-white shadow-[0_2px_6px_#204a7426]"
+                        : "border border-[#dcebf8] bg-white text-[#4c789c] hover:bg-[#f0f7fe]",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className={cx(linkBtn, "text-[#b5524f] hover:underline")}
+              >
+                Reset filters
+              </button>
+            )}
+          </div>
+
+          {/* Secondary controls: Month stepper / Custom dates + Type + Search */}
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
+            {preset === "month" && (
+              <div className="flex items-center gap-1 rounded-xl border border-[#d9eafa] bg-white px-2 py-1">
+                <button
+                  type="button"
+                  aria-label="Previous month"
+                  className="rounded-lg px-2 py-1 text-xs font-extrabold text-[#3c78aa] hover:bg-[#f2f8fe]"
+                  onClick={() => {
+                    setSelectedMonth((m) => shiftMonth(m, -1));
+                    setPage(1);
+                  }}
+                >
+                  ◀
+                </button>
+                <input
+                  type="month"
+                  aria-label="Select month"
+                  value={selectedMonth}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setSelectedMonth(e.target.value);
+                      setPage(1);
+                    }
+                  }}
+                  className="bg-transparent px-1.5 py-0.5 text-xs font-extrabold text-[#204a74] outline-none"
+                />
+                <button
+                  type="button"
+                  aria-label="Next month"
+                  className="rounded-lg px-2 py-1 text-xs font-extrabold text-[#3c78aa] hover:bg-[#f2f8fe]"
+                  onClick={() => {
+                    setSelectedMonth((m) => shiftMonth(m, 1));
+                    setPage(1);
+                  }}
+                >
+                  ▶
+                </button>
+              </div>
+            )}
+
+            {preset === "custom" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#5d7f9d]">
+                  From
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => {
+                      setCustomFrom(e.target.value);
+                      setPage(1);
+                    }}
+                    className="rounded-xl border border-[#d9eafa] bg-white px-2.5 py-1.5 text-xs font-bold text-[#204a74] outline-none focus:border-[#8cc3ef]"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#5d7f9d]">
+                  To
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => {
+                      setCustomTo(e.target.value);
+                      setPage(1);
+                    }}
+                    className="rounded-xl border border-[#d9eafa] bg-white px-2.5 py-1.5 text-xs font-bold text-[#204a74] outline-none focus:border-[#8cc3ef]"
+                  />
+                </label>
+              </div>
+            )}
+
+            {/* Type segmented control */}
+            <div
+              className="inline-flex rounded-xl border border-[#d9eafa] bg-white p-0.5"
+              role="group"
+              aria-label="Transaction type filter"
+            >
+              {(
+                [
+                  { id: "ALL", label: "All types" },
+                  { id: "INCOME", label: "Income" },
+                  { id: "EXPENSE", label: "Spent" },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setTypeFilter(t.id);
+                    setPage(1);
+                  }}
+                  className={cx(
+                    "rounded-[9px] px-2.5 py-1 text-[11px] font-extrabold transition-colors",
+                    typeFilter === t.id
+                      ? "bg-[#eaf5ff] text-[#204a74]"
+                      : "text-[#6b8bab] hover:text-[#204a74]",
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Search input */}
+            <div className="relative min-w-[200px] flex-1">
+              <input
+                type="search"
+                placeholder="Search purpose (e.g. shuttlecock, court fee)…"
+                value={searchText}
+                onChange={(e) => {
+                  setSearchText(e.target.value);
+                  setPage(1);
+                }}
+                className={cx(fieldInput, "py-1.5 text-xs")}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Transactions Table */}
         {treasury.entries.length === 0 ? (
           <div className={empty}>
-            No treasury entries yet. Use “＋ Add spent” or “＋ Add income” to start tracking.
+            {hasActiveFilters
+              ? "No treasury entries match your current filter. Try adjusting the period or clearing the search."
+              : "No treasury entries yet. Use “＋ Add spent” or “＋ Add income” to start tracking."}
           </div>
         ) : (
           <div className="overflow-x-auto border-t border-[#eef4f9]">
@@ -286,7 +756,201 @@ function TreasuryContent({
             </table>
           </div>
         )}
+
+        {/* Pagination Footer */}
+        <div
+          className={cx(
+            cardFoot,
+            "flex-wrap gap-3 bg-[#fafdff]",
+          )}
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <span>
+              {treasury.totalEntries === 0
+                ? "Showing 0 entries"
+                : `Showing ${startRow}–${endRow} of ${treasury.totalEntries} entries`}
+            </span>
+            <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#5d7f9d]">
+              Rows
+              <select
+                aria-label="Rows per page"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className={cx(selectInput, "px-2 py-1 text-[11px]")}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={cx(
+                btn("light", "sm"),
+                "disabled:cursor-not-allowed disabled:opacity-45",
+              )}
+              disabled={treasury.page <= 1 || fetching}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              ← Prev
+            </button>
+            <span className="px-1.5 font-extrabold text-[#204a74]">
+              Page {treasury.page} of {treasury.totalPages}
+            </span>
+            <button
+              type="button"
+              className={cx(
+                btn("light", "sm"),
+                "disabled:cursor-not-allowed disabled:opacity-45",
+              )}
+              disabled={treasury.page >= treasury.totalPages || fetching}
+              onClick={() =>
+                setPage((p) => Math.min(treasury.totalPages, p + 1))
+              }
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </section>
     </>
   );
 }
+
+function MonthlyCashflowCard({
+  monthly,
+  activeMonth,
+  onSelectMonth,
+}: {
+  monthly: TreasuryMonthlyBucket[];
+  activeMonth?: string;
+  onSelectMonth: (ym: string) => void;
+}) {
+  if (!monthly.length) return null;
+
+  const maxAmount = Math.max(
+    1,
+    ...monthly.map((m) => Math.max(m.income, m.expense)),
+  );
+
+  return (
+    <section
+      className={cx(card, "mb-5")}
+      aria-labelledby="monthly-cashflow-title"
+    >
+      <div className={cardHead}>
+        <div>
+          <h2 className={cardTitle} id="monthly-cashflow-title">
+            Monthly cashflow (last 6 months)
+          </h2>
+          <div className={sub}>
+            Click any month column to filter transactions for that period.
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] font-bold text-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block size-2.5 rounded-sm bg-ok" />
+            Income
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block size-2.5 rounded-sm bg-[#d97b78]" />
+            Spent
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-6 gap-2.5 border-t border-[#eef4f9] px-[22px] py-4 max-[860px]:grid-cols-3 max-[860px]:px-[15px] max-[480px]:grid-cols-2">
+        {monthly.map((bucket) => {
+          const isSelected = activeMonth === bucket.month;
+          const incPct =
+            bucket.income > 0
+              ? Math.max(6, Math.round((bucket.income / maxAmount) * 100))
+              : 0;
+          const expPct =
+            bucket.expense > 0
+              ? Math.max(6, Math.round((bucket.expense / maxAmount) * 100))
+              : 0;
+          const net = bucket.income - bucket.expense;
+
+          return (
+            <button
+              key={bucket.month}
+              type="button"
+              onClick={() => onSelectMonth(bucket.month)}
+              className={cx(
+                "flex flex-col justify-between rounded-2xl border p-3 text-left transition-all",
+                isSelected
+                  ? "border-[#589edb] bg-[#f0f8ff] shadow-[0_4px_12px_#589edb24]"
+                  : "border-[#e8f1fa] bg-[#fbfdff] hover:border-[#cbe2f6] hover:bg-[#f4faff]",
+              )}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[11px] font-extrabold text-[#204a74]">
+                  {fmtMonth(bucket.month)}
+                </span>
+                {isSelected && (
+                  <span className="rounded-md bg-[#204a74] px-1.5 py-0.5 text-[9px] font-extrabold text-white">
+                    Active
+                  </span>
+                )}
+              </div>
+
+              {/* Dual Bar Visual */}
+              <div className="my-3 flex h-16 items-end justify-center gap-2 border-b border-[#e5eff8] px-2 pt-2">
+                <div className="flex h-full flex-1 flex-col justify-end">
+                  <div
+                    title={`Income: ${formatIDR(bucket.income)}`}
+                    className="w-full rounded-t-md bg-ok transition-all duration-300"
+                    style={{ height: `${incPct}%` }}
+                  />
+                </div>
+                <div className="flex h-full flex-1 flex-col justify-end">
+                  <div
+                    title={`Spent: ${formatIDR(bucket.expense)}`}
+                    className="w-full rounded-t-md bg-[#d97b78] transition-all duration-300"
+                    style={{ height: `${expPct}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Totals */}
+              <div className="space-y-0.5 text-[10px]">
+                <div className="flex justify-between font-bold text-ok">
+                  <span>In</span>
+                  <span className=" truncate">{formatIDR(bucket.income)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-[#b5524f]">
+                  <span>Out</span>
+                  <span className="truncate">{formatIDR(bucket.expense)}</span>
+                </div>
+                <div className="flex justify-between border-t border-[#eef4f9] pt-1 font-extrabold text-[#204a74]">
+                  <span>Net</span>
+                  <span
+                    className={cx(
+                      "truncate",
+                      net > 0
+                        ? "text-ok"
+                        : net < 0
+                          ? "text-[#b5524f]"
+                          : "text-muted",
+                    )}
+                  >
+                    {net > 0 ? "+" : net < 0 ? "−" : ""}
+                    {formatIDR(Math.abs(net))}
+                  </span>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
