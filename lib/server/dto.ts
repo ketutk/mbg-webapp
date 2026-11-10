@@ -23,6 +23,9 @@ export const toDateStr = (d: Date): string => d.toISOString().slice(0, 10);
 export const fromDateStr = (iso: string): Date => new Date(`${iso}T00:00:00.000Z`);
 
 type GameWithPlayers = PrismaGame & { players: PrismaGamePlayer[] };
+type SessionWithCounts = PrismaSession & {
+  _count: { players: number; games: number };
+};
 type SessionWithRelations = PrismaSession & {
   players: PrismaPlayer[];
   games: GameWithPlayers[];
@@ -80,11 +83,17 @@ export function toPublicGameDTO(game: GameWithPlayers): PublicGame {
   };
 }
 
-export function toSessionListItemDTO(session: PrismaSession): SessionListItem {
+export function toSessionListItemDTO(
+  session: SessionWithCounts,
+): SessionListItem {
   return {
     id: session.id,
     name: session.name,
     date: toDateStr(session.date),
+    courtCount: session.courtCount,
+    status: session.status,
+    playerCount: session._count.players,
+    gameCount: session._count.games,
   };
 }
 
@@ -101,6 +110,7 @@ export function toSessionDTO(session: SessionWithRelations): Session {
     name: session.name,
     date: toDateStr(session.date),
     courtCount: session.courtCount,
+    status: session.status,
     players,
     games,
   };
@@ -143,6 +153,7 @@ export function toSessionSummaryDTO(session: SessionWithRelations): SessionSumma
     name: session.name,
     date: toDateStr(session.date),
     courtCount: session.courtCount,
+    status: session.status,
     players,
     courts,
     queue,

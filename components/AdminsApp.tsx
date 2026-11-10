@@ -8,6 +8,7 @@ import { deleteAdmin, useAdmins, useHydrated } from "@/lib/store";
 import type { AdminUser } from "@/lib/types";
 import { AdminDialog } from "./AdminDialog";
 import { AppHeader } from "./AppHeader";
+import { ConfirmDialog } from "./Dialog";
 import {
   btn,
   card,
@@ -113,23 +114,20 @@ function AdminsContent({
 }) {
   const { data: admins, loading } = useAdmins();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmAdmin, setConfirmAdmin] = useState<AdminUser | null>(null);
 
   if (loading || !admins) {
     return <div className={shimmerCard} aria-busy="true" />;
   }
 
-  async function handleDelete(admin: AdminUser) {
-    if (
-      !window.confirm(
-        `Soft-delete admin “${admin.username}”? Their active sessions will be revoked immediately.`,
-      )
-    ) {
-      return;
-    }
-    setDeletingId(admin.id);
+  async function handleConfirmDelete() {
+    if (!confirmAdmin) return;
+    setDeletingId(confirmAdmin.id);
     try {
-      await deleteAdmin(admin.id);
-      onToast(`Admin “${admin.username}” deleted`);
+      await deleteAdmin(confirmAdmin.id);
+      const deletedName = confirmAdmin.username;
+      setConfirmAdmin(null);
+      onToast(`Admin “${deletedName}” deleted`);
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not delete admin");
     } finally {
@@ -246,7 +244,7 @@ function AdminsContent({
                           <button
                             className={cx(linkBtn, "text-[#b5524f]")}
                             disabled={isDeleting}
-                            onClick={() => void handleDelete(admin)}
+                            onClick={() => setConfirmAdmin(admin)}
                           >
                             {isDeleting ? (
                               <>
@@ -267,6 +265,17 @@ function AdminsContent({
           </div>
         )}
       </section>
+
+      {confirmAdmin && (
+        <ConfirmDialog
+          title={`Delete admin “${confirmAdmin.username}”?`}
+          description={`Soft-delete organiser account “${confirmAdmin.username}”? Their active sessions will be revoked immediately and they will no longer be able to log in.`}
+          confirmLabel="Delete admin"
+          busy={deletingId === confirmAdmin.id}
+          onConfirm={() => void handleConfirmDelete()}
+          onClose={() => setConfirmAdmin(null)}
+        />
+      )}
     </>
   );
 }

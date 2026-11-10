@@ -1,4 +1,5 @@
 import "server-only";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import {
   fromDateStr,
@@ -12,7 +13,15 @@ import type {
   SessionInput,
   SessionPatchInput,
 } from "@/lib/schemas";
-import type { Session, SessionListItem, SessionSummary } from "@/lib/types";
+import type {
+  AuthUser,
+  Session,
+  SessionSummary,
+  SessionsFilterParams,
+  SessionsPage,
+} from "@/lib/types";
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const sessionInclude = {
   players: { orderBy: { position: "asc" as const } },
@@ -36,20 +45,107 @@ function dedupeNames(names: string[]): { name: string; nameKey: string }[] {
   return out;
 }
 
-export async function listSessions(): Promise<SessionListItem[]> {
+export async function listSessions(
+  params: SessionsFilterParams = {},
+  user: AuthUser | null = null,
+): Promise<SessionsPage> {
+  const isOrganiser = user !== null;
+  const pageSize = Math.min(100, Math.max(5, Math.trunc(params.pageSize || 10)));
+  const requestedPage = Math.max(1, Math.trunc(params.page || 1));
+
+  const fromStr = params.from && DATE_RE.test(params.from) ? params.from : undefined;
+  const toStr = params.to && DATE_RE.test(params.to) ? params.to : undefined;
+  const qFilter = params.q?.trim() ? params.q.trim() : undefined;
+
+  const statusFilter = !isOrganiser
+    ? ("OPEN" as const)
+    : params.status === "OPEN" || params.status === "CLOSED"
+      ? params.status
+      : undefined;
+
+  const baseWhere: Prisma.SessionWhereInput = {
+    ...(fromStr || toStr
+      ? {
+          date: {
+            ...(fromStr ? { gte: fromDateStr(fromStr) } : {}),
+            ...(toStr ? { lte: fromDateStr(toStr) } : {}),
+          },
+        }
+      : {}),
+    ...(qFilter
+      ? {
+          name: {
+            contains: qFilter,
+            mode: "insensitive",
+          },
+        }
+      : {}),
+  };
+
+  const filteredWhere: Prisma.SessionWhereInput = {
+    ...baseWhere,
+    ...(statusFilter ? { status: statusFilter } : {}),
+  };
+
+  const [totalSessions, statusCounts] = await Promise.all([
+    prisma.session.count({ where: filteredWhere }),
+    prisma.session.groupBy({
+      by: ["status"],
+      where: isOrganiser ? baseWhere : { ...baseWhere, status: "OPEN" },
+      _count: { _all: true },
+    }),
+  ]);
+
+  let openCount = 0;
+  let closedCount = 0;
+  for (const row of statusCounts) {
+    if (row.status === "OPEN") openCount = row._count._all;
+    if (row.status === "CLOSED") closedCount = isOrganiser ? row._count._all : 0;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalSessions / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+
   const rows = await prisma.session.findMany({
+    where: filteredWhere,
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    include: {
+      _count: {
+        select: { players: true, games: true },
+      },
+    },
   });
-  return rows.map(toSessionListItemDTO);
+
+  return {
+    sessions: rows.map(toSessionListItemDTO),
+    totalSessions,
+    openCount,
+    closedCount,
+    page,
+    pageSize,
+    totalPages,
+  };
 }
 
-export async function getSessionSummary(id: string): Promise<SessionSummary> {
+export async function getSessionSummary(
+  id: string,
+  user: AuthUser | null = null,
+): Promise<SessionSummary> {
   const row = await prisma.session.findUnique({
     where: { id },
     include: sessionInclude,
   });
   if (!row) {
     throw new HttpError(404, "NOT_FOUND", "Session not found.");
+  }
+  if (row.status === "CLOSED" && !user) {
+    throw new HttpError(
+      403,
+      "SESSION_CLOSED",
+      "This session is closed and only visible to organisers.",
+    );
   }
   return toSessionSummaryDTO(row);
 }
@@ -75,6 +171,7 @@ export async function createSessionRecord(
       name: input.name,
       date: fromDateStr(input.date),
       courtCount: input.courtCount,
+      status: input.status ?? "OPEN",
       createdById: userId,
       players: {
         create: uniquePlayers.map((p, index) => ({
@@ -92,7 +189,22 @@ export async function createSessionRecord(
 export async function updateSessionRecord(
   id: string,
   input: SessionPatchInput,
+  user: AuthUser,
 ): Promise<Session> {
+  const isSuperadmin = user.role === "SUPERADMIN";
+  if (
+    !isSuperadmin &&
+    (input.name !== undefined ||
+      input.date !== undefined ||
+      input.courtCount !== undefined)
+  ) {
+    throw new HttpError(
+      403,
+      "FORBIDDEN",
+      "Only superadmins can edit session name, date, or court count.",
+    );
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const existing = await tx.session.findUnique({
       where: { id },
@@ -124,6 +236,7 @@ export async function updateSessionRecord(
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.date !== undefined ? { date: fromDateStr(input.date) } : {}),
         ...(input.courtCount !== undefined ? { courtCount: input.courtCount } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
       },
       include: sessionInclude,
     });

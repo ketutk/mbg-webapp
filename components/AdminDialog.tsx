@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createAdmin, resetAdminPassword } from "@/lib/store";
 import { adminCreateInput, adminPasswordInput } from "@/lib/schemas";
 import type { AdminUser } from "@/lib/types";
-import { Modal } from "./Modal";
+import { Dialog } from "./Dialog";
 import {
   btn,
   cx,
@@ -65,7 +65,7 @@ export function AdminDialog({
   }
 
   return (
-    <Modal
+    <Dialog
       title={
         resetTarget
           ? `Reset password · ${resetTarget.username}`
@@ -142,7 +142,7 @@ export function AdminDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }
 

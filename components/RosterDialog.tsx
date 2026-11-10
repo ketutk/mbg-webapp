@@ -4,7 +4,7 @@ import { useState } from "react";
 import { parseNames, setRoster } from "@/lib/store";
 import { rosterInput } from "@/lib/schemas";
 import type { Session } from "@/lib/types";
-import { Modal } from "./Modal";
+import { Dialog } from "./Dialog";
 import {
   btn,
   cx,
@@ -55,7 +55,7 @@ export function RosterDialog({
   }
 
   return (
-    <Modal
+    <Dialog
       title="Edit players"
       description="One player per line. Players you keep (same name) keep their games; removed players lose theirs and unlock affected matches."
       onClose={onClose}
@@ -101,6 +101,6 @@ export function RosterDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }

@@ -16,10 +16,10 @@ export const GET = route(
 );
 
 export const PATCH = route(
-  { roles: ["SUPERADMIN"], body: sessionPatchInput },
-  async ({ params, body }) => {
+  { roles: ["ADMIN", "SUPERADMIN"], body: sessionPatchInput },
+  async ({ params, body, user }) => {
     const { id } = await params;
-    const session = await updateSessionRecord(id, body);
+    const session = await updateSessionRecord(id, body, user);
     return ok({ session });
   },
 );

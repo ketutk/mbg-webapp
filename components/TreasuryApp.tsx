@@ -6,6 +6,7 @@ import { fmtDate, fmtMonth, formatIDR, todayISO } from "@/lib/format";
 import { removeTreasuryEntry, useHydrated, useTreasury } from "@/lib/store";
 import type { EntryType, TreasuryEntry, TreasuryMonthlyBucket } from "@/lib/types";
 import { AppHeader } from "./AppHeader";
+import { ConfirmDialog } from "./Dialog";
 import { LoginDialog } from "./LoginDialog";
 import { TreasuryEntryDialog } from "./TreasuryEntryDialog";
 import {
@@ -229,6 +230,7 @@ function TreasuryContent({
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmEntry, setConfirmEntry] = useState<TreasuryEntry | null>(null);
 
   const periodRange = useMemo(
     () => computePresetDates(preset, selectedMonth, customFrom, customTo),
@@ -277,11 +279,12 @@ function TreasuryContent({
     setPage(1);
   }
 
-  async function handleDelete(entry: TreasuryEntry) {
-    if (!window.confirm(`Delete treasury entry “${entry.purpose}”?`)) return;
-    setDeletingId(entry.id);
+  async function handleConfirmDelete() {
+    if (!confirmEntry) return;
+    setDeletingId(confirmEntry.id);
     try {
-      await removeTreasuryEntry(entry.id);
+      await removeTreasuryEntry(confirmEntry.id);
+      setConfirmEntry(null);
       onToast("Treasury entry deleted");
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not delete entry");
@@ -736,7 +739,7 @@ function TreasuryContent({
                           <button
                             className={cx(linkBtn, "text-[#b5524f]")}
                             disabled={isDeleting}
-                            onClick={() => void handleDelete(entry)}
+                            onClick={() => setConfirmEntry(entry)}
                           >
                             {isDeleting ? (
                               <>
@@ -819,6 +822,17 @@ function TreasuryContent({
           </div>
         </div>
       </section>
+
+      {confirmEntry && (
+        <ConfirmDialog
+          title="Delete treasury entry?"
+          description={`Soft-delete “${confirmEntry.purpose}” (${formatIDR(confirmEntry.amount)})? This will immediately adjust the club treasury balance.`}
+          confirmLabel="Delete entry"
+          busy={deletingId === confirmEntry.id}
+          onConfirm={() => void handleConfirmDelete()}
+          onClose={() => setConfirmEntry(null)}
+        />
+      )}
     </>
   );
 }

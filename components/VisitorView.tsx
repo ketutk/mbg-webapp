@@ -3,11 +3,12 @@
 import { fmtDate } from "@/lib/format";
 import { fairnessGap } from "@/lib/match";
 import { selectSession, useSessionSummary } from "@/lib/store";
-import type { PublicGame, SessionListItem } from "@/lib/types";
+import type { PublicGame } from "@/lib/types";
 import { CourtCard } from "./CourtCard";
 import { initials } from "./PlayerGrid";
 import {
   avatar,
+  btn,
   card,
   cardHead,
   cardTitle,
@@ -18,22 +19,45 @@ import {
   eyebrow,
   h1,
   pill,
-  selectInput,
   shimmerCard,
   sub,
 } from "@/lib/ui";
 
 export function VisitorView({
   sessionId,
-  sessions,
+  onBackToList,
 }: {
   sessionId: string;
-  sessions: SessionListItem[];
+  onBackToList: () => void;
 }) {
-  const { data: summary, loading } = useSessionSummary(sessionId);
+  const { data: summary, error, loading } = useSessionSummary(sessionId);
 
-  if (loading || !summary) {
+  if (loading) {
     return <div className={shimmerCard} aria-busy="true" />;
+  }
+
+  if (error || !summary) {
+    return (
+      <section className={cx(card, "mx-auto mt-10 max-w-[480px] p-8 text-center")}>
+        <div className={eyebrow}>Session unavailable</div>
+        <h2 className="mt-2 font-display text-xl font-extrabold text-[#183e6b]">
+          {error instanceof Error ? error.message : "Session not found"}
+        </h2>
+        <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
+          This session may have been closed or removed by an organiser.
+        </p>
+        <button
+          type="button"
+          className={btn("primary")}
+          onClick={() => {
+            selectSession(null);
+            onBackToList();
+          }}
+        >
+          ← Back to all sessions
+        </button>
+      </section>
+    );
   }
 
   const nameOf = new Map(summary.players.map((p) => [p.id, p.name]));
@@ -60,26 +84,28 @@ export function VisitorView({
     <>
       <section className="mt-8 mb-[22px] flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
         <div>
-          <div className={eyebrow}>{fmtDate(summary.date)}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={eyebrow}>{fmtDate(summary.date)}</span>
+            <span
+              className={pill(summary.status === "OPEN" ? "ok" : "default")}
+            >
+              {summary.status === "OPEN" ? "Open" : "Closed"}
+            </span>
+          </div>
           <h1 className={h1}>{summary.name}</h1>
         </div>
-        {sessions.length > 1 && (
-          <label>
-            <span className="sr-only">Switch session</span>
-            <select
-              id="visitor-session-select"
-              className={selectInput}
-              value={summary.id}
-              onChange={(e) => selectSession(e.target.value)}
-            >
-              {sessions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} · {fmtDate(s.date)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={btn("light")}
+            onClick={() => {
+              selectSession(null);
+              onBackToList();
+            }}
+          >
+            ← All sessions
+          </button>
+        </div>
       </section>
 
       <section className="mb-5" aria-labelledby="visitor-courts-title">

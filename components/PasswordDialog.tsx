@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { changePassword } from "@/lib/auth";
 import { changePasswordInput } from "@/lib/schemas";
-import { Modal } from "./Modal";
+import { Dialog } from "./Dialog";
 import {
   btn,
   cx,
@@ -53,7 +53,7 @@ export function PasswordDialog({
   }
 
   return (
-    <Modal
+    <Dialog
       title="Change password"
       description="Enter your current password and choose a new password (at least 10 characters)."
       onClose={onClose}
@@ -112,7 +112,7 @@ export function PasswordDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }
 

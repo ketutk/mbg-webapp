@@ -4,7 +4,7 @@ import { useState } from "react";
 import { addTreasuryEntry, editTreasuryEntry, todayISO } from "@/lib/store";
 import { treasuryInput, treasuryPatchInput } from "@/lib/schemas";
 import type { EntryType, TreasuryEntry } from "@/lib/types";
-import { Modal } from "./Modal";
+import { Dialog } from "./Dialog";
 import {
   btn,
   cx,
@@ -87,7 +87,7 @@ export function TreasuryEntryDialog({
   }
 
   return (
-    <Modal
+    <Dialog
       title={
         editingEntry
           ? "Edit treasury entry"
@@ -192,7 +192,7 @@ export function TreasuryEntryDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }
 

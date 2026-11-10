@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { login } from "@/lib/auth";
 import { loginSchema } from "@/lib/schemas";
-import { Modal } from "./Modal";
+import { Dialog } from "./Dialog";
 import {
   btn,
   cx,
@@ -49,7 +49,7 @@ export function LoginDialog({
   }
 
   return (
-    <Modal
+    <Dialog
       title="Admin login"
       description="Sign in with your organiser account to manage courts, matches and treasury."
       onClose={onClose}
@@ -106,7 +106,7 @@ export function LoginDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }
 

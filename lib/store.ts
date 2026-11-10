@@ -16,8 +16,9 @@ import type {
   AdminUser,
   Game,
   Session,
-  SessionListItem,
   SessionSummary,
+  SessionsFilterParams,
+  SessionsPage,
   Team,
   TreasuryEntry,
   TreasuryFilterParams,
@@ -91,13 +92,26 @@ export function parseNames(text: string): string[] {
 
 /* ---------------------------------- queries --------------------------------- */
 
-export function useSessionsList(pollMs = 10_000) {
+export function useSessionsList(
+  params?: SessionsFilterParams,
+  pollMs = 10_000,
+) {
   const query = useQuery({
-    queryKey: queryKeys.sessionsList,
+    queryKey: queryKeys.sessionsPage(params),
     queryFn: async () => {
-      const { sessions } = await api<{ sessions: SessionListItem[] }>("/sessions");
-      return sessions;
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set("from", params.from);
+      if (params?.to) sp.set("to", params.to);
+      if (params?.status && params.status !== "ALL") {
+        sp.set("status", params.status);
+      }
+      if (params?.q?.trim()) sp.set("q", params.q.trim());
+      if (params?.page && params.page > 1) sp.set("page", String(params.page));
+      if (params?.pageSize) sp.set("pageSize", String(params.pageSize));
+      const qs = sp.toString();
+      return api<SessionsPage>(qs ? `/sessions?${qs}` : "/sessions");
     },
+    placeholderData: keepPreviousData,
     refetchInterval: pollMs,
     refetchIntervalInBackground: false,
   });
@@ -207,10 +221,6 @@ export async function createSession(input: SessionInput): Promise<Session> {
     body: input,
   });
   queryClient.setQueryData<Session>(queryKeys.sessionDetail(session.id), session);
-  queryClient.setQueryData<SessionListItem[]>(queryKeys.sessionsList, (prev) => [
-    { id: session.id, name: session.name, date: session.date },
-    ...(prev ?? []),
-  ]);
   selectSession(session.id);
   void queryClient.invalidateQueries({ queryKey: queryKeys.sessionsList });
   void queryClient.invalidateQueries({
@@ -235,14 +245,10 @@ export async function updateSession(
 
 export async function deleteSession(id: string): Promise<void> {
   await api<{ ok: boolean }>(`/sessions/${id}`, { method: "DELETE" });
-  const list =
-    queryClient.getQueryData<SessionListItem[]>(queryKeys.sessionsList) ?? [];
-  const next = list.filter((s) => s.id !== id);
-  queryClient.setQueryData<SessionListItem[]>(queryKeys.sessionsList, next);
   queryClient.removeQueries({ queryKey: queryKeys.sessionDetail(id) });
   queryClient.removeQueries({ queryKey: queryKeys.sessionSummary(id) });
   if (localStorage.getItem(CURRENT_KEY) === id) {
-    selectSession(next[0]?.id ?? null);
+    selectSession(null);
   }
   void queryClient.invalidateQueries({ queryKey: queryKeys.sessionsList });
 }
@@ -259,6 +265,7 @@ export async function setRoster(
     },
   );
   queryClient.setQueryData<Session>(queryKeys.sessionDetail(sessionId), session);
+  void queryClient.invalidateQueries({ queryKey: queryKeys.sessionsList });
   void queryClient.invalidateQueries({
     queryKey: queryKeys.sessionSummary(sessionId),
   });
@@ -285,6 +292,7 @@ export async function assignMatch(
   void queryClient.invalidateQueries({
     queryKey: queryKeys.sessionSummary(sessionId),
   });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.sessionsList });
   return game;
 }
 
@@ -468,6 +476,7 @@ export async function removeGame(
     void queryClient.invalidateQueries({
       queryKey: queryKeys.sessionSummary(sessionId),
     });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.sessionsList });
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
     throw err;
@@ -492,6 +501,7 @@ export async function clearGames(sessionId: string): Promise<void> {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.sessionSummary(sessionId),
     });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.sessionsList });
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
     throw err;

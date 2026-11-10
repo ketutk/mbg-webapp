@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtMonth, todayISO } from "@/lib/format";
 import { queueOf, recommend } from "@/lib/match";
 import {
   deleteSession,
@@ -11,15 +11,24 @@ import {
   reorderQueue,
   selectSession,
   startQueuedMatch,
+  updateSession,
   useCurrentSessionId,
   useHydrated,
   useSessionDetail,
   useSessionsList,
 } from "@/lib/store";
-import type { AuthUser, Game, Session, SessionListItem, Team } from "@/lib/types";
+import type {
+  AuthUser,
+  Game,
+  Session,
+  SessionListItem,
+  SessionStatus,
+  Team,
+} from "@/lib/types";
 import { AppHeader } from "./AppHeader";
 import { AssignDialog, type AssignDialogConfig } from "./AssignDialog";
 import { CourtBoard } from "./CourtBoard";
+import { ConfirmDialog } from "./Dialog";
 import { HistoryDialog } from "./HistoryDialog";
 import { LoginDialog } from "./LoginDialog";
 import { NextMatch } from "./NextMatch";
@@ -31,19 +40,50 @@ import { SessionSettingsDialog } from "./SessionSettingsDialog";
 import { VisitorView } from "./VisitorView";
 import {
   btn,
+  card,
+  cardFoot,
+  cardHead,
+  cardTitle,
   cx,
+  empty,
   eyebrow,
+  fieldInput,
   h1,
+  linkBtn,
+  pill,
   selectInput,
   shimmerCard,
   spinner,
+  sub,
   toastBox,
 } from "@/lib/ui";
+
+type PeriodPreset = "all" | "this-month" | "last-30" | "this-year" | "custom";
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function getMonthRange(ym: string): { from: string; to: string } {
+  const [yStr, mStr] = ym.split("-");
+  const y = Number(yStr) || new Date().getFullYear();
+  const m = Number(mStr) || 1;
+  const lastDay = new Date(y, m, 0).getDate();
+  return {
+    from: `${y}-${pad2(m)}-01`,
+    to: `${y}-${pad2(m)}-${pad2(lastDay)}`,
+  };
+}
+
+function addDaysISO(iso: string, deltaDays: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + deltaDays);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
 
 export default function MatchApp() {
   const hydrated = useHydrated();
   const { user, loading: authLoading } = useAuth();
-  const { data: sessions = [], loading: listLoading } = useSessionsList();
   const currentId = useCurrentSessionId();
 
   const [creating, setCreating] = useState(false);
@@ -57,8 +97,6 @@ export default function MatchApp() {
     timer.current = setTimeout(() => setToast(""), 2600);
   }
 
-  const activeId =
-    sessions.find((s) => s.id === currentId)?.id ?? sessions[0]?.id ?? null;
   const isSuperadmin = user?.role === "SUPERADMIN";
 
   return (
@@ -71,47 +109,41 @@ export default function MatchApp() {
       />
 
       <main>
-        {!hydrated || authLoading || listLoading ? (
+        {!hydrated || authLoading ? (
           <div className={shimmerCard} aria-busy="true" />
-        ) : activeId ? (
-          user ? (
-            <AdminSessionContainer
-              key={activeId}
-              sessionId={activeId}
-              sessions={sessions}
+        ) : (
+          <>
+            {currentId && (
+              <div className="mb-8">
+                {user ? (
+                  <AdminSessionContainer
+                    key={currentId}
+                    sessionId={currentId}
+                    user={user}
+                    onToast={showToast}
+                  />
+                ) : (
+                  <VisitorView
+                    key={currentId}
+                    sessionId={currentId}
+                    onBackToList={() => selectSession(null)}
+                  />
+                )}
+              </div>
+            )}
+
+            <SessionsDirectorySection
               user={user}
+              currentSessionId={currentId}
+              onSelectSession={(id) => {
+                selectSession(id);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              onNewSession={() => setCreating(true)}
+              onLogin={() => setLoggingIn(true)}
               onToast={showToast}
             />
-          ) : (
-            <VisitorView sessionId={activeId} sessions={sessions} />
-          )
-        ) : (
-          <section className="mx-auto mt-[12vh] max-w-[560px] text-center">
-            <div className={eyebrow}>Game day</div>
-            <h1 className={h1}>Play fair. Play more.</h1>
-            <p className="mt-4 mb-[26px] leading-[1.6] text-muted">
-              {isSuperadmin
-                ? "Create a game session, add your players and assign matches to courts or the queue so everyone gets equal court time."
-                : user
-                  ? "No sessions yet. Ask a superadmin to create the first session."
-                  : "No game sessions have been created yet. Check back on game day or log in as an organiser."}
-            </p>
-            {isSuperadmin ? (
-              <button
-                className={btn("primary", "lg")}
-                onClick={() => setCreating(true)}
-              >
-                ＋ Create your first session
-              </button>
-            ) : !user ? (
-              <button
-                className={btn("primary", "lg")}
-                onClick={() => setLoggingIn(true)}
-              >
-                Admin login
-              </button>
-            ) : null}
-          </section>
+          </>
         )}
       </main>
 
@@ -138,41 +170,582 @@ export default function MatchApp() {
   );
 }
 
+function SessionsDirectorySection({
+  user,
+  currentSessionId,
+  onSelectSession,
+  onNewSession,
+  onLogin,
+  onToast,
+}: {
+  user: AuthUser | null;
+  currentSessionId: string | null;
+  onSelectSession: (id: string) => void;
+  onNewSession: () => void;
+  onLogin: () => void;
+  onToast: (msg: string) => void;
+}) {
+  const isOrganiser = user !== null;
+  const isSuperadmin = user?.role === "SUPERADMIN";
+
+  const [preset, setPreset] = useState<PeriodPreset>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | SessionStatus>("ALL");
+  const [searchText, setSearchText] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [deletingSession, setDeletingSession] =
+    useState<SessionListItem | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
+
+  const dateRange = useMemo(() => {
+    const today = todayISO();
+    const ym = today.slice(0, 7);
+    switch (preset) {
+      case "all":
+        return {};
+      case "this-month":
+        return getMonthRange(ym);
+      case "last-30":
+        return { from: addDaysISO(today, -29), to: today };
+      case "this-year": {
+        const year = today.slice(0, 4);
+        return { from: `${year}-01-01`, to: `${year}-12-31` };
+      }
+      case "custom":
+        return {
+          from: customFrom || undefined,
+          to: customTo || undefined,
+        };
+    }
+  }, [preset, customFrom, customTo]);
+
+  const filterParams = useMemo(
+    () => ({
+      from: dateRange.from,
+      to: dateRange.to,
+      status: isOrganiser ? statusFilter : ("OPEN" as const),
+      q: searchText.trim() || undefined,
+      page,
+      pageSize,
+    }),
+    [dateRange.from, dateRange.to, isOrganiser, statusFilter, searchText, page, pageSize],
+  );
+
+  const { data, loading, fetching } = useSessionsList(filterParams);
+
+  if (loading && !data) {
+    return <div className={shimmerCard} aria-busy="true" />;
+  }
+
+  if (!data) return null;
+
+  const hasActiveFilters =
+    preset !== "all" ||
+    (isOrganiser && statusFilter !== "ALL") ||
+    searchText.trim().length > 0;
+
+  function resetFilters() {
+    setPreset("all");
+    setCustomFrom("");
+    setCustomTo("");
+    setStatusFilter("ALL");
+    setSearchText("");
+    setPage(1);
+  }
+
+  async function handleToggleStatus(item: SessionListItem) {
+    const nextStatus: SessionStatus =
+      item.status === "OPEN" ? "CLOSED" : "OPEN";
+    setTogglingId(item.id);
+    try {
+      await updateSession(item.id, { status: nextStatus });
+      onToast(
+        `Session “${item.name}” marked as ${nextStatus === "OPEN" ? "Open" : "Closed"}`,
+      );
+    } catch (err) {
+      onToast(
+        err instanceof Error ? err.message : "Could not update session status",
+      );
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  async function handleConfirmDeleteSession() {
+    if (!deletingSession) return;
+    setDeletingBusy(true);
+    try {
+      const targetName = deletingSession.name;
+      await deleteSession(deletingSession.id);
+      setDeletingSession(null);
+      onToast(`Session “${targetName}” deleted`);
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not delete session");
+    } finally {
+      setDeletingBusy(false);
+    }
+  }
+
+  const startRow =
+    data.totalSessions === 0 ? 0 : (data.page - 1) * data.pageSize + 1;
+  const endRow = Math.min(data.totalSessions, data.page * data.pageSize);
+
+  const presetOptions: { id: PeriodPreset; label: string }[] = [
+    { id: "all", label: "All dates" },
+    { id: "this-month", label: `This month (${fmtMonth(todayISO().slice(0, 7))})` },
+    { id: "last-30", label: "Last 30d" },
+    { id: "this-year", label: "This year" },
+    { id: "custom", label: "Custom range" },
+  ];
+
+  return (
+    <>
+      {!currentSessionId && (
+        <section className="mt-8 mb-5 flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
+          <div>
+            <div className={eyebrow}>Match sessions</div>
+            <h1 className={h1}>Play fair. Play more.</h1>
+            <div className="mt-1 text-xs text-muted">
+              {isOrganiser
+                ? `Browse all ${data.openCount + data.closedCount} sessions (${data.openCount} open · ${data.closedCount} closed). Select any session to view or manage courts and matches.`
+                : `Showing ${data.openCount} open session${data.openCount === 1 ? "" : "s"}. Select a session to view live courts, queue, and player game counts.`}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {isSuperadmin ? (
+              <button className={btn("primary")} onClick={onNewSession}>
+                ＋ New session
+              </button>
+            ) : !user ? (
+              <button className={btn("light")} onClick={onLogin}>
+                Admin login
+              </button>
+            ) : null}
+          </div>
+        </section>
+      )}
+
+      <section
+        id="sessions-directory"
+        className={card}
+        aria-labelledby="sessions-directory-title"
+      >
+        <div className={cardHead}>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className={cardTitle} id="sessions-directory-title">
+                All game sessions
+              </h2>
+              <span className={pill("ok")}>{data.openCount} open</span>
+              {isOrganiser && (
+                <span className={pill("default")}>
+                  {data.closedCount} closed
+                </span>
+              )}
+            </div>
+            <div className={sub}>
+              {isOrganiser
+                ? "Closed sessions are hidden from public visitors and visible only to admins and superadmins."
+                : "Select any open session to inspect live courts, upcoming queue, and player match counts."}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {fetching && (
+              <span
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#5089b7]"
+                aria-live="polite"
+              >
+                <span className={spinner} />
+                Updating…
+              </span>
+            )}
+            <span className={pill("default")}>
+              {data.totalSessions} session{data.totalSessions === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+
+        {/* Filter Toolbar */}
+        <div className="border-t border-[#eef4f9] bg-[#fafdff] px-[22px] py-3.5 max-[860px]:px-[15px]">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div
+              className="flex flex-wrap items-center gap-1.5"
+              role="group"
+              aria-label="Date range filter"
+            >
+              {presetOptions.map((opt) => {
+                const active = preset === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setPreset(opt.id);
+                      setPage(1);
+                    }}
+                    className={cx(
+                      "rounded-lg px-2.5 py-1.5 text-[11px] font-extrabold transition-colors",
+                      active
+                        ? "bg-[#204a74] text-white shadow-[0_2px_6px_#204a7426]"
+                        : "border border-[#dcebf8] bg-white text-[#4c789c] hover:bg-[#f0f7fe]",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className={cx(linkBtn, "text-[#b5524f] hover:underline")}
+              >
+                Reset filters
+              </button>
+            )}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
+            {preset === "custom" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#5d7f9d]">
+                  From
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => {
+                      setCustomFrom(e.target.value);
+                      setPage(1);
+                    }}
+                    className="rounded-xl border border-[#d9eafa] bg-white px-2.5 py-1.5 text-xs font-bold text-[#204a74] outline-none focus:border-[#8cc3ef]"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#5d7f9d]">
+                  To
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => {
+                      setCustomTo(e.target.value);
+                      setPage(1);
+                    }}
+                    className="rounded-xl border border-[#d9eafa] bg-white px-2.5 py-1.5 text-xs font-bold text-[#204a74] outline-none focus:border-[#8cc3ef]"
+                  />
+                </label>
+              </div>
+            )}
+
+            {isOrganiser && (
+              <div
+                className="inline-flex rounded-xl border border-[#d9eafa] bg-white p-0.5"
+                role="group"
+                aria-label="Session status filter"
+              >
+                {(
+                  [
+                    { id: "ALL", label: "All status" },
+                    { id: "OPEN", label: "Open" },
+                    { id: "CLOSED", label: "Closed" },
+                  ] as const
+                ).map((st) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter(st.id);
+                      setPage(1);
+                    }}
+                    className={cx(
+                      "rounded-[9px] px-2.5 py-1 text-[11px] font-extrabold transition-colors",
+                      statusFilter === st.id
+                        ? "bg-[#eaf5ff] text-[#204a74]"
+                        : "text-[#6b8bab] hover:text-[#204a74]",
+                    )}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="relative min-w-[200px] flex-1">
+              <input
+                type="search"
+                placeholder="Search session name (e.g. Minggu pagi)…"
+                value={searchText}
+                onChange={(e) => {
+                  setSearchText(e.target.value);
+                  setPage(1);
+                }}
+                className={cx(fieldInput, "py-1.5 text-xs")}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Sessions Table */}
+        {data.sessions.length === 0 ? (
+          <div className={empty}>
+            {hasActiveFilters
+              ? "No sessions match your current filter. Try adjusting the date range, status, or search query."
+              : isSuperadmin
+                ? "No game sessions yet. Click “＋ New session” to create your first session."
+                : "No open game sessions available right now."}
+          </div>
+        ) : (
+          <div className="overflow-x-auto border-t border-[#eef4f9]">
+            <table className="w-full border-separate border-spacing-0 text-left text-xs">
+              <thead>
+                <tr className="bg-[#fafdff] text-[10px] font-extrabold text-[#5d7f9d]">
+                  <th className="border-b border-[#f0f5f9] py-2.5 pl-[22px] pr-3 max-[860px]:pl-3.5">
+                    Date
+                  </th>
+                  <th className="border-b border-[#f0f5f9] py-2.5 px-3">
+                    Session
+                  </th>
+                  <th className="border-b border-[#f0f5f9] py-2.5 px-3">
+                    Status
+                  </th>
+                  <th className="border-b border-[#f0f5f9] py-2.5 px-3 text-center">
+                    Courts
+                  </th>
+                  <th className="border-b border-[#f0f5f9] py-2.5 px-3 text-center">
+                    Players
+                  </th>
+                  <th className="border-b border-[#f0f5f9] py-2.5 px-3 text-center">
+                    Matches
+                  </th>
+                  <th className="border-b border-[#f0f5f9] py-2.5 pr-[22px] pl-3 text-right max-[860px]:pr-3.5">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.sessions.map((item) => {
+                  const isCurrent = item.id === currentSessionId;
+                  const isToggling = togglingId === item.id;
+                  return (
+                    <tr
+                      key={item.id}
+                      className={cx(
+                        "transition-colors hover:bg-[#f9fcff]",
+                        isCurrent && "bg-[#f1f9ff]",
+                      )}
+                    >
+                      <td className="border-b border-[#f0f5f9] py-3 pl-[22px] pr-3 whitespace-nowrap text-muted max-[860px]:pl-3.5">
+                        {fmtDate(item.date)}
+                      </td>
+                      <td className="border-b border-[#f0f5f9] py-3 px-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onSelectSession(item.id)}
+                            className="text-left font-bold text-[#204a74] hover:text-[#337fc4] hover:underline"
+                          >
+                            {item.name}
+                          </button>
+                          {isCurrent && (
+                            <span className={pill("next")}>Viewing</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="border-b border-[#f0f5f9] py-3 px-3 whitespace-nowrap">
+                        <span
+                          className={pill(
+                            item.status === "OPEN" ? "ok" : "default",
+                          )}
+                        >
+                          {item.status === "OPEN" ? "Open" : "Closed"}
+                        </span>
+                      </td>
+                      <td className="border-b border-[#f0f5f9] py-3 px-3 text-center font-display font-extrabold text-[#204a74]">
+                        {item.courtCount}
+                      </td>
+                      <td className="border-b border-[#f0f5f9] py-3 px-3 text-center font-display font-extrabold text-[#204a74]">
+                        {item.playerCount}
+                      </td>
+                      <td className="border-b border-[#f0f5f9] py-3 px-3 text-center font-display font-extrabold text-[#204a74]">
+                        {item.gameCount}
+                      </td>
+                      <td className="border-b border-[#f0f5f9] py-3 pr-[22px] pl-3 text-right whitespace-nowrap max-[860px]:pr-3.5">
+                        <div className="inline-flex items-center justify-end gap-2.5">
+                          <button
+                            type="button"
+                            className={btn(
+                              isCurrent ? "light" : "primary",
+                              "sm",
+                            )}
+                            onClick={() =>
+                              isCurrent
+                                ? selectSession(null)
+                                : onSelectSession(item.id)
+                            }
+                          >
+                            {isCurrent ? "Hide detail" : "View detail"}
+                          </button>
+                          {isOrganiser && (
+                            <button
+                              type="button"
+                              className={linkBtn}
+                              disabled={isToggling}
+                              onClick={() => void handleToggleStatus(item)}
+                            >
+                              {isToggling ? (
+                                <>
+                                  <span className={cx(spinner, "mr-1")} />
+                                  Saving…
+                                </>
+                              ) : item.status === "OPEN" ? (
+                                "Close"
+                              ) : (
+                                "Reopen"
+                              )}
+                            </button>
+                          )}
+                          {isSuperadmin && (
+                            <button
+                              type="button"
+                              className={cx(linkBtn, "text-[#b5524f]")}
+                              onClick={() => setDeletingSession(item)}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination Footer */}
+        <div className={cx(cardFoot, "flex-wrap gap-3 bg-[#fafdff]")}>
+          <div className="flex flex-wrap items-center gap-3">
+            <span>
+              {data.totalSessions === 0
+                ? "Showing 0 sessions"
+                : `Showing ${startRow}–${endRow} of ${data.totalSessions} sessions`}
+            </span>
+            <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#5d7f9d]">
+              Rows
+              <select
+                aria-label="Rows per page"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className={cx(selectInput, "px-2 py-1 text-[11px]")}
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={cx(
+                btn("light", "sm"),
+                "disabled:cursor-not-allowed disabled:opacity-45",
+              )}
+              disabled={data.page <= 1 || fetching}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              ← Prev
+            </button>
+            <span className="px-1.5 font-extrabold text-[#204a74]">
+              Page {data.page} of {data.totalPages}
+            </span>
+            <button
+              type="button"
+              className={cx(
+                btn("light", "sm"),
+                "disabled:cursor-not-allowed disabled:opacity-45",
+              )}
+              disabled={data.page >= data.totalPages || fetching}
+              onClick={() =>
+                setPage((p) => Math.min(data.totalPages, p + 1))
+              }
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {deletingSession && (
+        <ConfirmDialog
+          title={`Delete session “${deletingSession.name}”?`}
+          description={`Permanently delete “${deletingSession.name}” (${fmtDate(deletingSession.date)}) and all its ${deletingSession.playerCount} players and ${deletingSession.gameCount} matches?`}
+          confirmLabel="Delete session"
+          busy={deletingBusy}
+          onConfirm={() => void handleConfirmDeleteSession()}
+          onClose={() => setDeletingSession(null)}
+        />
+      )}
+    </>
+  );
+}
+
 function AdminSessionContainer({
   sessionId,
-  sessions,
   user,
   onToast,
 }: {
   sessionId: string;
-  sessions: SessionListItem[];
   user: AuthUser;
   onToast: (msg: string) => void;
 }) {
-  const { data: session, loading } = useSessionDetail(sessionId);
+  const { data: session, error, loading } = useSessionDetail(sessionId);
 
-  if (loading || !session) {
+  if (loading) {
     return <div className={shimmerCard} aria-busy="true" />;
   }
 
-  return (
-    <SessionView
-      session={session}
-      sessions={sessions}
-      user={user}
-      onToast={onToast}
-    />
-  );
+  if (error || !session) {
+    return (
+      <section className={cx(card, "mx-auto mt-8 max-w-[480px] p-8 text-center")}>
+        <div className={eyebrow}>Session not found</div>
+        <h2 className="mt-2 font-display text-xl font-extrabold text-[#183e6b]">
+          Could not load this session
+        </h2>
+        <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
+          {error instanceof Error
+            ? error.message
+            : "This session may have been deleted."}
+        </p>
+        <button
+          type="button"
+          className={btn("primary")}
+          onClick={() => selectSession(null)}
+        >
+          ← Back to all sessions
+        </button>
+      </section>
+    );
+  }
+
+  return <SessionView session={session} user={user} onToast={onToast} />;
 }
 
 function SessionView({
   session,
-  sessions,
   user,
   onToast,
 }: {
   session: Session;
-  sessions: SessionListItem[];
   user: AuthUser;
   onToast: (msg: string) => void;
 }) {
@@ -183,16 +756,41 @@ function SessionView({
   const [assignConfig, setAssignConfig] = useState<AssignDialogConfig | null>(
     null,
   );
+  const [confirmDeleteSession, setConfirmDeleteSession] = useState(false);
   const [deletingSession, setDeletingSession] = useState(false);
+  const [togglingStatus, setTogglingStatus] = useState(false);
   const [promotingCourt, setPromotingCourt] = useState<number | null>(null);
   const [finishingGameId, setFinishingGameId] = useState<string | null>(null);
   const [movingGameId, setMovingGameId] = useState<string | null>(null);
+  const [confirmRemoveQueued, setConfirmRemoveQueued] = useState<Game | null>(
+    null,
+  );
   const [removingGameId, setRemovingGameId] = useState<string | null>(null);
 
   const isSuperadmin = user.role === "SUPERADMIN";
   const rec = useMemo(() => recommend(session, seed), [session, seed]);
   const nextUp = useMemo(() => new Set(rec?.players.map((p) => p.id)), [rec]);
   const queue = useMemo(() => queueOf(session), [session]);
+
+  async function handleToggleSessionStatus() {
+    const nextStatus: SessionStatus =
+      session.status === "OPEN" ? "CLOSED" : "OPEN";
+    setTogglingStatus(true);
+    try {
+      await updateSession(session.id, { status: nextStatus });
+      onToast(
+        nextStatus === "OPEN"
+          ? "Session opened — now visible to visitors"
+          : "Session closed — now restricted to organisers",
+      );
+    } catch (err) {
+      onToast(
+        err instanceof Error ? err.message : "Could not update session status",
+      );
+    } finally {
+      setTogglingStatus(false);
+    }
+  }
 
   async function handleFinishGame(game: Game) {
     setFinishingGameId(game.id);
@@ -236,11 +834,12 @@ function SessionView({
     }
   }
 
-  async function handleRemoveQueued(game: Game) {
-    if (!window.confirm("Remove this queued match?")) return;
-    setRemovingGameId(game.id);
+  async function handleConfirmRemoveQueued() {
+    if (!confirmRemoveQueued) return;
+    setRemovingGameId(confirmRemoveQueued.id);
     try {
-      await removeGame(session.id, game.id);
+      await removeGame(session.id, confirmRemoveQueued.id);
+      setConfirmRemoveQueued(null);
       onToast("Queued match removed");
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not remove match");
@@ -249,11 +848,11 @@ function SessionView({
     }
   }
 
-  async function handleDeleteSession() {
-    if (!window.confirm(`Delete session “${session.name}”?`)) return;
+  async function handleConfirmDeleteSession() {
     setDeletingSession(true);
     try {
       await deleteSession(session.id);
+      setConfirmDeleteSession(false);
       onToast("Session deleted");
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not delete session");
@@ -266,25 +865,41 @@ function SessionView({
     <>
       <section className="mt-8 mb-[22px] flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
         <div>
-          <div className={eyebrow}>{fmtDate(session.date)}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={eyebrow}>{fmtDate(session.date)}</span>
+            <span
+              className={pill(session.status === "OPEN" ? "ok" : "default")}
+            >
+              {session.status === "OPEN" ? "Open" : "Closed (Organisers only)"}
+            </span>
+          </div>
           <h1 className={h1}>{session.name}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label>
-            <span className="sr-only">Switch session</span>
-            <select
-              id="session-select"
-              className={selectInput}
-              value={session.id}
-              onChange={(e) => selectSession(e.target.value)}
-            >
-              {sessions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} · {fmtDate(s.date)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <button
+            type="button"
+            className={btn("light")}
+            onClick={() => selectSession(null)}
+          >
+            ← All sessions
+          </button>
+          <button
+            type="button"
+            className={btn("light")}
+            disabled={togglingStatus}
+            onClick={() => void handleToggleSessionStatus()}
+          >
+            {togglingStatus ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Updating…
+              </>
+            ) : session.status === "OPEN" ? (
+              "Close session"
+            ) : (
+              "Reopen session"
+            )}
+          </button>
           <button
             id="match-history"
             className={btn("light")}
@@ -311,7 +926,7 @@ function SessionView({
               <button
                 className={btn("danger")}
                 disabled={deletingSession}
-                onClick={() => void handleDeleteSession()}
+                onClick={() => setConfirmDeleteSession(true)}
               >
                 {deletingSession ? (
                   <>
@@ -374,7 +989,7 @@ function SessionView({
             editingGame: game,
           })
         }
-        onRemoveGame={(g) => void handleRemoveQueued(g)}
+        onRemoveGame={(g) => setConfirmRemoveQueued(g)}
         onMoveQueue={(idx, dir) => void handleMoveQueue(idx, dir)}
       />
 
@@ -431,6 +1046,27 @@ function SessionView({
           }}
         />
       )}
+      {confirmRemoveQueued && (
+        <ConfirmDialog
+          title="Remove queued match?"
+          description="Are you sure you want to remove this match from the queue? Its ticked players will have their match count reduced."
+          confirmLabel="Remove match"
+          busy={removingGameId === confirmRemoveQueued.id}
+          onConfirm={() => void handleConfirmRemoveQueued()}
+          onClose={() => setConfirmRemoveQueued(null)}
+        />
+      )}
+      {confirmDeleteSession && (
+        <ConfirmDialog
+          title={`Delete session “${session.name}”?`}
+          description={`Permanently delete “${session.name}” (${fmtDate(session.date)}) and all its players and matches? This action cannot be undone.`}
+          confirmLabel="Delete session"
+          busy={deletingSession}
+          onConfirm={() => void handleConfirmDeleteSession()}
+          onClose={() => setConfirmDeleteSession(false)}
+        />
+      )}
     </>
   );
 }
+

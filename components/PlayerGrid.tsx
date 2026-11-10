@@ -9,6 +9,7 @@ import {
 } from "@/lib/store";
 import { fairnessGap, getStats } from "@/lib/match";
 import type { Session } from "@/lib/types";
+import { ConfirmDialog } from "./Dialog";
 import {
   avatar,
   card,
@@ -59,6 +60,11 @@ export function PlayerGrid({
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [confirmRemoveGame, setConfirmRemoveGame] = useState<{
+    gameId: string;
+    n: number;
+  } | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const stats = getStats(session);
   const { min, max } = fairnessGap(stats);
@@ -94,11 +100,13 @@ export function PlayerGrid({
     }
   }
 
-  async function handleRemoveGame(gameId: string, n: number) {
-    if (!window.confirm(`Remove game ${n}?`)) return;
+  async function handleConfirmRemoveGame() {
+    if (!confirmRemoveGame) return;
+    const { gameId, n } = confirmRemoveGame;
     setRemovingId(gameId);
     try {
       await removeGame(session.id, gameId);
+      setConfirmRemoveGame(null);
       onToast?.(`Game ${n} removed`);
     } catch (err) {
       onToast?.(err instanceof Error ? err.message : "Could not remove game");
@@ -107,11 +115,11 @@ export function PlayerGrid({
     }
   }
 
-  async function handleClearAll() {
-    if (!window.confirm("Remove all games from this session?")) return;
+  async function handleConfirmClearAll() {
     setClearing(true);
     try {
       await clearGames(session.id);
+      setConfirmClearAll(false);
       onToast?.("All games cleared");
     } catch (err) {
       onToast?.(err instanceof Error ? err.message : "Could not clear games");
@@ -222,7 +230,9 @@ export function PlayerGrid({
                         aria-label={`Remove game ${i + 1}`}
                         title="Remove this game"
                         disabled={isRemoving}
-                        onClick={() => void handleRemoveGame(g.id, i + 1)}
+                        onClick={() =>
+                          setConfirmRemoveGame({ gameId: g.id, n: i + 1 })
+                        }
                       >
                         {isRemoving ? (
                           <span className={cx(spinner, "size-2.5")} />
@@ -348,7 +358,7 @@ export function PlayerGrid({
         <button
           className={linkBtn}
           disabled={!session.games.length || clearing}
-          onClick={() => void handleClearAll()}
+          onClick={() => setConfirmClearAll(true)}
         >
           {clearing ? (
             <>
@@ -360,6 +370,28 @@ export function PlayerGrid({
           )}
         </button>
       </div>
+
+      {confirmRemoveGame && (
+        <ConfirmDialog
+          title={`Remove Game ${confirmRemoveGame.n}?`}
+          description={`Are you sure you want to remove Game ${confirmRemoveGame.n} from the checklist?`}
+          confirmLabel="Remove game"
+          busy={removingId === confirmRemoveGame.gameId}
+          onConfirm={() => void handleConfirmRemoveGame()}
+          onClose={() => setConfirmRemoveGame(null)}
+        />
+      )}
+
+      {confirmClearAll && (
+        <ConfirmDialog
+          title="Clear all matches?"
+          description={`Remove all ${session.games.length} match${session.games.length === 1 ? "" : "es"} from “${session.name}”? All player game counts will reset to 0.`}
+          confirmLabel="Clear all matches"
+          busy={clearing}
+          onConfirm={() => void handleConfirmClearAll()}
+          onClose={() => setConfirmClearAll(false)}
+        />
+      )}
     </section>
   );
 }

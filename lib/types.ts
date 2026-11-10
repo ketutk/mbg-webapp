@@ -1,4 +1,5 @@
 export type Role = "SUPERADMIN" | "ADMIN";
+export type SessionStatus = "OPEN" | "CLOSED";
 export type GameStatus = "QUEUED" | "ON_COURT" | "DONE";
 export type EntryType = "INCOME" | "EXPENSE";
 
@@ -50,6 +51,7 @@ export interface Session {
   /** yyyy-mm-dd */
   date: string;
   courtCount: number;
+  status: SessionStatus;
   players: Player[];
   /** Ordered by creation sequence (`seq`). */
   games: Game[];
@@ -60,6 +62,29 @@ export interface SessionListItem {
   name: string;
   /** yyyy-mm-dd */
   date: string;
+  courtCount: number;
+  status: SessionStatus;
+  playerCount: number;
+  gameCount: number;
+}
+
+export interface SessionsFilterParams {
+  from?: string;
+  to?: string;
+  status?: "ALL" | SessionStatus;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface SessionsPage {
+  sessions: SessionListItem[];
+  totalSessions: number;
+  openCount: number;
+  closedCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface PublicGame {
@@ -72,8 +97,13 @@ export interface PublicGame {
   teams?: [Team, Team];
 }
 
-export interface SessionSummary extends SessionListItem {
+export interface SessionSummary {
+  id: string;
+  name: string;
+  /** yyyy-mm-dd */
+  date: string;
   courtCount: number;
+  status: SessionStatus;
   /** `count` includes queued games; `queued` is how many of those are still QUEUED. */
   players: { id: string; name: string; count: number; queued: number }[];
   courts: PublicGame[];

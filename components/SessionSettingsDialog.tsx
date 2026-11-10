@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { updateSession } from "@/lib/store";
 import { sessionPatchInput } from "@/lib/schemas";
-import type { Session } from "@/lib/types";
-import { Modal } from "./Modal";
+import type { Session, SessionStatus } from "@/lib/types";
+import { Dialog } from "./Dialog";
 import {
   btn,
   cx,
@@ -30,6 +30,7 @@ export function SessionSettingsDialog({
   const [name, setName] = useState(session.name);
   const [date, setDate] = useState(session.date);
   const [courtCount, setCourtCount] = useState(session.courtCount);
+  const [status, setStatus] = useState<SessionStatus>(session.status);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -40,6 +41,7 @@ export function SessionSettingsDialog({
       name: name.trim(),
       date,
       courtCount,
+      status,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Invalid session settings");
@@ -59,9 +61,9 @@ export function SessionSettingsDialog({
   }
 
   return (
-    <Modal
+    <Dialog
       title="Session settings"
-      description="Update the session name, date or number of courts."
+      description="Update the session name, date, number of courts, or open/closed visibility."
       onClose={onClose}
     >
       <form onSubmit={submit}>
@@ -89,21 +91,35 @@ export function SessionSettingsDialog({
             />
           </label>
         </div>
-        <label className={field}>
-          <span className={fieldLabel}>Courts available (1–8)</span>
-          <input
-            id="settings-courts"
-            className={fieldInput}
-            type="number"
-            min={1}
-            max={8}
-            value={courtCount}
-            onChange={(e) => setCourtCount(Number(e.target.value) || 1)}
-            required
-          />
-        </label>
+        <div className={fieldRow}>
+          <label className={field}>
+            <span className={fieldLabel}>Courts available (1–8)</span>
+            <input
+              id="settings-courts"
+              className={fieldInput}
+              type="number"
+              min={1}
+              max={8}
+              value={courtCount}
+              onChange={(e) => setCourtCount(Number(e.target.value) || 1)}
+              required
+            />
+          </label>
+          <label className={field}>
+            <span className={fieldLabel}>Status</span>
+            <select
+              id="settings-status"
+              className={fieldInput}
+              value={status}
+              onChange={(e) => setStatus(e.target.value as SessionStatus)}
+            >
+              <option value="OPEN">Open (Publicly visible)</option>
+              <option value="CLOSED">Closed (Organisers only)</option>
+            </select>
+          </label>
+        </div>
         <div className={notice}>
-          Court count cannot be lowered below an occupied court.
+          Court count cannot be lowered below an occupied court. Closed sessions are hidden from visitors.
         </div>
         {error && <div className={errorNotice}>{error}</div>}
         <div className={modalActions}>
@@ -132,7 +148,7 @@ export function SessionSettingsDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }
 

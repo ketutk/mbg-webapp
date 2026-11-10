@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { createSession, parseNames, todayISO } from "@/lib/store";
 import { sessionInput } from "@/lib/schemas";
-import { Modal } from "./Modal";
+import type { SessionStatus } from "@/lib/types";
+import { Dialog } from "./Dialog";
 import {
   btn,
   cx,
@@ -22,6 +23,7 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
   const [date, setDate] = useState(todayISO);
   const [name, setName] = useState("");
   const [courtCount, setCourtCount] = useState(1);
+  const [status, setStatus] = useState<SessionStatus>("OPEN");
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,6 +36,7 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
       name: name.trim() || `Game day ${date}`,
       date,
       courtCount,
+      status,
       names,
     });
     if (!parsed.success) {
@@ -53,9 +56,9 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal
+    <Dialog
       title="New game session"
-      description="Name the session, set your court count, and paste your players one per line."
+      description="Name the session, set your court count, choose visibility status, and paste your players one per line."
       onClose={onClose}
     >
       <form onSubmit={submit}>
@@ -83,19 +86,33 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
             />
           </label>
         </div>
-        <label className={field}>
-          <span className={fieldLabel}>Courts available (1–8)</span>
-          <input
-            id="session-courts"
-            className={fieldInput}
-            type="number"
-            min={1}
-            max={8}
-            value={courtCount}
-            onChange={(e) => setCourtCount(Number(e.target.value) || 1)}
-            required
-          />
-        </label>
+        <div className={fieldRow}>
+          <label className={field}>
+            <span className={fieldLabel}>Courts available (1–8)</span>
+            <input
+              id="session-courts"
+              className={fieldInput}
+              type="number"
+              min={1}
+              max={8}
+              value={courtCount}
+              onChange={(e) => setCourtCount(Number(e.target.value) || 1)}
+              required
+            />
+          </label>
+          <label className={field}>
+            <span className={fieldLabel}>Status</span>
+            <select
+              id="session-status"
+              className={fieldInput}
+              value={status}
+              onChange={(e) => setStatus(e.target.value as SessionStatus)}
+            >
+              <option value="OPEN">Open (Publicly visible)</option>
+              <option value="CLOSED">Closed (Organisers only)</option>
+            </select>
+          </label>
+        </div>
         <label className={field}>
           <span className={fieldLabel}>Players</span>
           <textarea
@@ -140,6 +157,6 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }

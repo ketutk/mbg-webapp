@@ -10,7 +10,7 @@ import {
 } from "@/lib/match";
 import { assignInput, gameUpdateInput } from "@/lib/schemas";
 import type { Game, Session, Team } from "@/lib/types";
-import { Modal } from "./Modal";
+import { Dialog } from "./Dialog";
 import {
   btn,
   cx,
@@ -192,7 +192,7 @@ export function AssignDialog({
   }
 
   return (
-    <Modal
+    <Dialog
       title={
         isEditing
           ? "Edit match players"
@@ -334,7 +334,7 @@ export function AssignDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </Dialog>
   );
 }
 

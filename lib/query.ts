@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import type { TreasuryFilterParams } from "./types";
+import type { SessionsFilterParams, TreasuryFilterParams } from "./types";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -14,6 +14,8 @@ export const queryClient = new QueryClient({
 export const queryKeys = {
   authMe: ["auth", "me"] as const,
   sessionsList: ["sessions", "list"] as const,
+  sessionsPage: (params?: SessionsFilterParams) =>
+    ["sessions", "list", params ?? {}] as const,
   sessionSummary: (id: string) => ["sessions", "summary", id] as const,
   sessionDetail: (id: string) => ["sessions", "detail", id] as const,
   treasury: ["treasury"] as const,
@@ -21,4 +23,5 @@ export const queryKeys = {
     ["treasury", "summary", params ?? {}] as const,
   admins: ["admins", "list"] as const,
 };
+
 
