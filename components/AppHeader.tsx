@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useIsFetching } from "@tanstack/react-query";
 import { logout } from "@/lib/auth";
 import type { AuthUser } from "@/lib/types";
 import { LoginDialog } from "./LoginDialog";
 import { PasswordDialog } from "./PasswordDialog";
 import { initials } from "./PlayerGrid";
-import { avatar, btn, cx, linkBtn, pill } from "@/lib/ui";
+import { avatar, btn, cx, linkBtn, pill, spinner } from "@/lib/ui";
 
 export function AppHeader({
   active,
@@ -24,6 +25,8 @@ export function AppHeader({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
   const [changingPass, setChangingPass] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const isFetching = useIsFetching();
 
   const isSuperadmin = user?.role === "SUPERADMIN";
 
@@ -37,9 +40,14 @@ export function AppHeader({
   }, [drawerOpen]);
 
   async function handleLogout() {
-    setDrawerOpen(false);
-    await logout();
-    onToast("Signed out");
+    setLoggingOut(true);
+    try {
+      await logout();
+      setDrawerOpen(false);
+      onToast("Signed out");
+    } finally {
+      setLoggingOut(false);
+    }
   }
 
   return (
@@ -70,7 +78,17 @@ export function AppHeader({
         {/* Desktop controls (> 860px) */}
         <div className="flex items-center gap-2.5 max-[860px]:hidden">
           <span className="flex items-center gap-[7px] text-xs text-muted">
-            <i className="size-[7px] rounded-full bg-[#53b8a3]" /> Live
+            {isFetching > 0 ? (
+              <>
+                <span className={cx(spinner, "size-2.5 text-[#5da5e4]")} />
+                <span>Syncing…</span>
+              </>
+            ) : (
+              <>
+                <i className="size-[7px] rounded-full bg-[#53b8a3]" />
+                <span>Live</span>
+              </>
+            )}
           </span>
 
           {user ? (
@@ -137,9 +155,17 @@ export function AppHeader({
               <button
                 id="logout-btn"
                 className={btn("light", "sm")}
+                disabled={loggingOut}
                 onClick={() => void handleLogout()}
               >
-                Log out
+                {loggingOut ? (
+                  <>
+                    <span className={cx(spinner, "mr-1.5")} />
+                    Signing out…
+                  </>
+                ) : (
+                  "Log out"
+                )}
               </button>
             </>
           ) : (
@@ -221,7 +247,17 @@ export function AppHeader({
               <div className="flex items-center justify-between gap-2 border-b border-[#eef4f9] pb-4">
                 <div className="flex items-center gap-2">
                   <span className="flex items-center gap-1.5 text-xs font-bold text-[#204a74]">
-                    <i className="size-2 rounded-full bg-[#53b8a3]" /> Live
+                    {isFetching > 0 ? (
+                      <>
+                        <span className={cx(spinner, "size-2.5 text-[#5da5e4]")} />
+                        <span>Syncing…</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="size-2 rounded-full bg-[#53b8a3]" />
+                        <span>Live</span>
+                      </>
+                    )}
                   </span>
                 </div>
                 <button
@@ -327,9 +363,17 @@ export function AppHeader({
                 <button
                   type="button"
                   className={cx(btn("danger", "md"), "w-full")}
+                  disabled={loggingOut}
                   onClick={() => void handleLogout()}
                 >
-                  Log out
+                  {loggingOut ? (
+                    <>
+                      <span className={cx(spinner, "mr-1.5")} />
+                      Signing out…
+                    </>
+                  ) : (
+                    "Log out"
+                  )}
                 </button>
               ) : (
                 <button
@@ -363,4 +407,3 @@ export function AppHeader({
     </>
   );
 }
-

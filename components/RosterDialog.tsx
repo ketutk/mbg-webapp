@@ -7,12 +7,14 @@ import type { Session } from "@/lib/types";
 import { Modal } from "./Modal";
 import {
   btn,
+  cx,
   errorNotice,
   field,
   fieldLabel,
   fieldTextarea,
   modalActions,
   notice,
+  spinner,
 } from "@/lib/ui";
 
 export function RosterDialog({
@@ -88,7 +90,14 @@ export function RosterDialog({
             className={btn("primary")}
             disabled={busy}
           >
-            {busy ? "Saving…" : "Save players"}
+            {busy ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Saving…
+              </>
+            ) : (
+              "Save players"
+            )}
           </button>
         </div>
       </form>

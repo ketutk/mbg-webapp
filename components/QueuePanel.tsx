@@ -12,17 +12,22 @@ import {
   emptySmall,
   linkBtn,
   pill,
+  spinner,
   sub,
 } from "@/lib/ui";
 
 export function QueuePanel({
   session,
+  movingGameId,
+  removingGameId,
   onAddQueue,
   onEditGame,
   onRemoveGame,
   onMoveQueue,
 }: {
   session: Session;
+  movingGameId: string | null;
+  removingGameId: string | null;
   onAddQueue: () => void;
   onEditGame: (game: Game) => void;
   onRemoveGame: (game: Game) => void;
@@ -65,6 +70,9 @@ export function QueuePanel({
       ) : (
         <ol className="list-none border-t border-[#eef4f9]">
           {queue.map((g, i) => {
+            const isMoving = movingGameId === g.id;
+            const isRemoving = removingGameId === g.id;
+            const isBusy = isMoving || isRemoving || movingGameId !== null;
             const teams =
               g.teams ??
               (g.playerIds.length === 4
@@ -77,11 +85,14 @@ export function QueuePanel({
             return (
               <li
                 key={g.id}
-                className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0f5f9] px-[22px] py-3 last:border-b-0 max-[860px]:px-[15px]"
+                className={cx(
+                  "flex flex-wrap items-center justify-between gap-3 border-b border-[#f0f5f9] px-[22px] py-3 transition-opacity last:border-b-0 max-[860px]:px-[15px]",
+                  (isMoving || isRemoving) && "opacity-60",
+                )}
               >
                 <div className="flex flex-wrap items-center gap-2.5">
                   <span className="grid size-6 place-items-center rounded-lg bg-[#eaf5ff] font-display text-xs font-extrabold text-[#337fc4]">
-                    {i + 1}
+                    {isMoving ? <span className={spinner} /> : i + 1}
                   </span>
                   <span className={pill("warn")}>Queued</span>
                   {teams ? (
@@ -115,12 +126,12 @@ export function QueuePanel({
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 ml-auto">
+                <div className="ml-auto flex items-center gap-2">
                   <button
                     className={linkBtn}
                     aria-label={`Move queued match ${i + 1} up`}
                     title="Move up"
-                    disabled={i === 0}
+                    disabled={i === 0 || isBusy}
                     onClick={() => onMoveQueue(i, -1)}
                   >
                     ▲
@@ -129,13 +140,14 @@ export function QueuePanel({
                     className={linkBtn}
                     aria-label={`Move queued match ${i + 1} down`}
                     title="Move down"
-                    disabled={i === queue.length - 1}
+                    disabled={i === queue.length - 1 || isBusy}
                     onClick={() => onMoveQueue(i, 1)}
                   >
                     ▼
                   </button>
                   <button
                     className={linkBtn}
+                    disabled={isBusy}
                     onClick={() => onEditGame(g)}
                   >
                     Edit
@@ -143,9 +155,10 @@ export function QueuePanel({
                   <button
                     className={cx(linkBtn, "text-[#b5524f]")}
                     aria-label={`Remove queued match ${i + 1}`}
+                    disabled={isBusy}
                     onClick={() => onRemoveGame(g)}
                   >
-                    ✕
+                    {isRemoving ? <span className={spinner} /> : "✕"}
                   </button>
                 </div>
               </li>
@@ -156,4 +169,3 @@ export function QueuePanel({
     </section>
   );
 }
-

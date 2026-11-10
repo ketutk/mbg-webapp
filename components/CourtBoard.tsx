@@ -7,12 +7,16 @@ import { cardTitle, pill, sub } from "@/lib/ui";
 
 export function CourtBoard({
   session,
+  promotingCourt,
+  finishingGameId,
   onAssignCourt,
   onPromoteNext,
   onEditGame,
   onFinishGame,
 }: {
   session: Session;
+  promotingCourt: number | null;
+  finishingGameId: string | null;
   onAssignCourt: (courtNumber: number) => void;
   onPromoteNext: (courtNumber: number) => void;
   onEditGame: (game: Game) => void;
@@ -47,6 +51,8 @@ export function CourtBoard({
             game={game}
             nameOf={nameOf}
             hasQueue={queue.length > 0}
+            promoting={promotingCourt === courtNumber}
+            finishing={Boolean(game && finishingGameId === game.id)}
             onAssign={onAssignCourt}
             onPromote={onPromoteNext}
             onEdit={onEditGame}
@@ -57,4 +63,3 @@ export function CourtBoard({
     </section>
   );
 }
-

@@ -21,6 +21,7 @@ import {
   fieldRow,
   modalActions,
   notice,
+  spinner,
 } from "@/lib/ui";
 
 export interface AssignDialogConfig {
@@ -318,13 +319,18 @@ export function AssignDialog({
             className={btn("primary")}
             disabled={busy}
           >
-            {busy
-              ? "Saving…"
-              : isEditing
-                ? "Save match"
-                : targetType === "court"
-                  ? `Start on Court ${courtNumber}`
-                  : "Add to queue"}
+            {busy ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Saving…
+              </>
+            ) : isEditing ? (
+              "Save match"
+            ) : targetType === "court" ? (
+              `Start on Court ${courtNumber}`
+            ) : (
+              "Add to queue"
+            )}
           </button>
         </div>
       </form>

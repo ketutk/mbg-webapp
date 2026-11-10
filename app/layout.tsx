@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Manrope } from "next/font/google";
+import { QueryProvider } from "@/components/QueryProvider";
 import {
   SITE_DESCRIPTION,
   SITE_KEYWORDS,
@@ -122,7 +123,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-        {children}
+        <QueryProvider>{children}</QueryProvider>
       </body>
     </html>
   );

@@ -29,6 +29,8 @@ export const btn = (
 ) => cx(btnBase, btnVariants[variant], btnSizes[size]);
 
 export const linkBtn = "bg-transparent text-[11px] font-extrabold text-[#5089b7]";
+export const spinner =
+  "inline-block size-3.5 animate-spin rounded-full border-2 border-current border-r-transparent align-[-2px]";
 
 /* ---------------------------------- cards ---------------------------------- */
 export const card =

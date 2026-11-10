@@ -6,6 +6,7 @@ import { sessionInput } from "@/lib/schemas";
 import { Modal } from "./Modal";
 import {
   btn,
+  cx,
   errorNotice,
   field,
   fieldInput,
@@ -14,6 +15,7 @@ import {
   fieldTextarea,
   modalActions,
   notice,
+  spinner,
 } from "@/lib/ui";
 
 export function SessionDialog({ onClose }: { onClose: () => void }) {
@@ -127,7 +129,14 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
             className={btn("primary")}
             disabled={busy}
           >
-            {busy ? "Creating…" : "Create session"}
+            {busy ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Creating…
+              </>
+            ) : (
+              "Create session"
+            )}
           </button>
         </div>
       </form>

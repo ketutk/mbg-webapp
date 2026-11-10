@@ -7,12 +7,14 @@ import type { AdminUser } from "@/lib/types";
 import { Modal } from "./Modal";
 import {
   btn,
+  cx,
   errorNotice,
   field,
   fieldInput,
   fieldLabel,
   modalActions,
   notice,
+  spinner,
 } from "@/lib/ui";
 
 export function AdminDialog({
@@ -127,11 +129,16 @@ export function AdminDialog({
             className={btn("primary")}
             disabled={busy}
           >
-            {busy
-              ? "Saving…"
-              : resetTarget
-                ? "Reset password"
-                : "Create admin"}
+            {busy ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Saving…
+              </>
+            ) : resetTarget ? (
+              "Reset password"
+            ) : (
+              "Create admin"
+            )}
           </button>
         </div>
       </form>

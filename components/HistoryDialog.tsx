@@ -1,10 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import { fmtTime } from "@/lib/format";
 import { removeGame } from "@/lib/store";
 import type { Session } from "@/lib/types";
 import { Modal } from "./Modal";
-import { btn, chip, cx, empty, linkBtn, modalActions, pill } from "@/lib/ui";
+import {
+  btn,
+  chip,
+  cx,
+  empty,
+  linkBtn,
+  modalActions,
+  pill,
+  spinner,
+} from "@/lib/ui";
 
 export function HistoryDialog({
   session,
@@ -13,11 +23,22 @@ export function HistoryDialog({
   session: Session;
   onClose: () => void;
 }) {
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const nameOf = new Map(session.players.map((p) => [p.id, p.name]));
   const name = (id: string) => nameOf.get(id) ?? "Removed player";
 
   // newest first, but keep the original game number
   const games = session.games.map((g, i) => ({ g, n: i + 1 })).reverse();
+
+  async function handleRemove(gameId: string, n: number) {
+    if (!window.confirm(`Remove game ${n}?`)) return;
+    setRemovingId(gameId);
+    try {
+      await removeGame(session.id, gameId);
+    } finally {
+      setRemovingId(null);
+    }
+  }
 
   return (
     <Modal
@@ -29,85 +50,98 @@ export function HistoryDialog({
         <div className={empty}>No matches yet. Assign a match to see it here.</div>
       ) : (
         <ol className="-mx-[23px] max-h-[60vh] list-none overflow-auto border-t border-[#eef4f9]">
-          {games.map(({ g, n }) => (
-            <li
-              key={g.id}
-              className="group border-b border-[#f0f5f9] px-[23px] py-3 hover:bg-[#f9fcff]"
-            >
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="grid size-7 place-items-center rounded-[9px] bg-[#eaf5ff] font-display text-xs font-extrabold text-[#337fc4]">
-                  {n}
-                </span>
-                <span className="font-display text-sm font-extrabold text-[#204a74]">
-                  Game {n}
-                </span>
-                {g.createdAt && (
-                  <span className="text-[11px] text-muted">
-                    · {fmtTime(g.createdAt)}
-                  </span>
+          {games.map(({ g, n }) => {
+            const isRemoving = removingId === g.id;
+            return (
+              <li
+                key={g.id}
+                className={cx(
+                  "group border-b border-[#f0f5f9] px-[23px] py-3 transition-opacity hover:bg-[#f9fcff]",
+                  isRemoving && "opacity-50",
                 )}
-                {g.status === "QUEUED" && (
-                  <span className={pill("warn")}>Queued</span>
-                )}
-                {g.status === "ON_COURT" && (
-                  <span className={pill("ok")}>
-                    On court {g.courtNumber ?? ""}
+              >
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="grid size-7 place-items-center rounded-[9px] bg-[#eaf5ff] font-display text-xs font-extrabold text-[#337fc4]">
+                    {n}
                   </span>
-                )}
-                {g.status === "DONE" && (
-                  <span className={pill("default")}>Finished</span>
-                )}
-                {g.locked && (
-                  <span className="text-[11px] text-muted" title="Column is locked">
-                    🔒
+                  <span className="font-display text-sm font-extrabold text-[#204a74]">
+                    Game {n}
                   </span>
-                )}
-                <button
-                  className={cx(linkBtn, "ml-auto text-[#b5524f]")}
-                  aria-label={`Remove game ${n}`}
-                  onClick={() => {
-                    if (window.confirm(`Remove game ${n}?`)) {
-                      void removeGame(session.id, g.id);
-                    }
-                  }}
-                >
-                  Remove
-                </button>
-              </div>
-
-              {g.teams ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="flex gap-1">
-                    {g.teams[0].map((id) => (
-                      <span key={id} className={chip}>
-                        {name(id)}
-                      </span>
-                    ))}
-                  </span>
-                  <span className="font-display text-[10px] font-extrabold tracking-[2px] text-[#9db0c3]">
-                    VS
-                  </span>
-                  <span className="flex gap-1">
-                    {g.teams[1].map((id) => (
-                      <span key={id} className={chip}>
-                        {name(id)}
-                      </span>
-                    ))}
-                  </span>
-                </div>
-              ) : g.playerIds.length ? (
-                <div className="flex flex-wrap gap-1">
-                  {g.playerIds.map((id) => (
-                    <span key={id} className={chip}>
-                      {name(id)}
+                  {g.createdAt && (
+                    <span className="text-[11px] text-muted">
+                      · {fmtTime(g.createdAt)}
                     </span>
-                  ))}
+                  )}
+                  {g.status === "QUEUED" && (
+                    <span className={pill("warn")}>Queued</span>
+                  )}
+                  {g.status === "ON_COURT" && (
+                    <span className={pill("ok")}>
+                      On court {g.courtNumber ?? ""}
+                    </span>
+                  )}
+                  {g.status === "DONE" && (
+                    <span className={pill("default")}>Finished</span>
+                  )}
+                  {g.locked && (
+                    <span
+                      className="text-[11px] text-muted"
+                      title="Column is locked"
+                    >
+                      🔒
+                    </span>
+                  )}
+                  <button
+                    className={cx(linkBtn, "ml-auto text-[#b5524f]")}
+                    aria-label={`Remove game ${n}`}
+                    disabled={isRemoving}
+                    onClick={() => void handleRemove(g.id, n)}
+                  >
+                    {isRemoving ? (
+                      <>
+                        <span className={cx(spinner, "mr-1")} />
+                        Removing…
+                      </>
+                    ) : (
+                      "Remove"
+                    )}
+                  </button>
                 </div>
-              ) : (
-                <div className="text-xs text-muted">No players ticked.</div>
-              )}
-            </li>
-          ))}
+
+                {g.teams ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="flex gap-1">
+                      {g.teams[0].map((id) => (
+                        <span key={id} className={chip}>
+                          {name(id)}
+                        </span>
+                      ))}
+                    </span>
+                    <span className="font-display text-[10px] font-extrabold tracking-[2px] text-[#9db0c3]">
+                      VS
+                    </span>
+                    <span className="flex gap-1">
+                      {g.teams[1].map((id) => (
+                        <span key={id} className={chip}>
+                          {name(id)}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                ) : g.playerIds.length ? (
+                  <div className="flex flex-wrap gap-1">
+                    {g.playerIds.map((id) => (
+                      <span key={id} className={chip}>
+                        {name(id)}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted">No players ticked.</div>
+                )}
+              </li>
+            );
+          })}
         </ol>
       )}
 

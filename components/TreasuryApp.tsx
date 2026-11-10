@@ -20,6 +20,7 @@ import {
   linkBtn,
   pill,
   shimmerCard,
+  spinner,
   sub,
   toastBox,
 } from "@/lib/ui";
@@ -51,7 +52,9 @@ export default function TreasuryApp() {
         {!hydrated || authLoading ? (
           <div className={shimmerCard} aria-busy="true" />
         ) : !user ? (
-          <section className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}>
+          <section
+            className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}
+          >
             <div className={eyebrow}>Organisers only</div>
             <h1 className="mt-2 font-display text-2xl font-extrabold text-[#183e6b]">
               Please log in to view treasury
@@ -116,6 +119,7 @@ function TreasuryContent({
   onToast: (msg: string) => void;
 }) {
   const { data: treasury, loading } = useTreasury();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   if (loading || !treasury) {
     return <div className={shimmerCard} aria-busy="true" />;
@@ -123,11 +127,14 @@ function TreasuryContent({
 
   async function handleDelete(entry: TreasuryEntry) {
     if (!window.confirm(`Delete treasury entry “${entry.purpose}”?`)) return;
+    setDeletingId(entry.id);
     try {
       await removeTreasuryEntry(entry.id);
       onToast("Treasury entry deleted");
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not delete entry");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -171,7 +178,8 @@ function TreasuryContent({
             </div>
           </div>
           <span className={pill("default")}>
-            {treasury.entries.length} entr{treasury.entries.length === 1 ? "y" : "ies"}
+            {treasury.entries.length} entr
+            {treasury.entries.length === 1 ? "y" : "ies"}
           </span>
         </div>
 
@@ -207,55 +215,73 @@ function TreasuryContent({
                 </tr>
               </thead>
               <tbody>
-                {treasury.entries.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-[#f9fcff]">
-                    <td className="border-b border-[#f0f5f9] py-3 pl-[22px] pr-3 whitespace-nowrap text-muted max-[860px]:pl-3.5">
-                      {fmtDate(entry.date)}
-                    </td>
-                    <td className="border-b border-[#f0f5f9] py-3 px-3 font-bold text-[#204a74]">
-                      {entry.purpose}
-                    </td>
-                    <td className="border-b border-[#f0f5f9] py-3 px-3">
-                      <span
-                        className={pill(
-                          entry.type === "INCOME" ? "ok" : "warn",
-                        )}
-                      >
-                        {entry.type === "INCOME" ? "Income" : "Spent"}
-                      </span>
-                    </td>
-                    <td
+                {treasury.entries.map((entry) => {
+                  const isDeleting = deletingId === entry.id;
+                  return (
+                    <tr
+                      key={entry.id}
                       className={cx(
-                        "border-b border-[#f0f5f9] py-3 px-3 text-right font-display font-extrabold whitespace-nowrap",
-                        entry.type === "INCOME"
-                          ? "text-ok"
-                          : "text-[#b5524f]",
+                        "transition-opacity hover:bg-[#f9fcff]",
+                        isDeleting && "opacity-50",
                       )}
                     >
-                      {entry.type === "INCOME" ? "+" : "−"}
-                      {formatIDR(entry.amount)}
-                    </td>
-                    <td className="border-b border-[#f0f5f9] py-3 px-3 text-muted">
-                      {entry.createdByName}
-                    </td>
-                    {isSuperadmin && (
-                      <td className="border-b border-[#f0f5f9] py-3 pr-[22px] pl-3 text-right whitespace-nowrap max-[860px]:pr-3.5">
-                        <button
-                          className={cx(linkBtn, "mr-2.5")}
-                          onClick={() => onEdit(entry)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className={cx(linkBtn, "text-[#b5524f]")}
-                          onClick={() => void handleDelete(entry)}
-                        >
-                          Delete
-                        </button>
+                      <td className="border-b border-[#f0f5f9] py-3 pl-[22px] pr-3 whitespace-nowrap text-muted max-[860px]:pl-3.5">
+                        {fmtDate(entry.date)}
                       </td>
-                    )}
-                  </tr>
-                ))}
+                      <td className="border-b border-[#f0f5f9] py-3 px-3 font-bold text-[#204a74]">
+                        {entry.purpose}
+                      </td>
+                      <td className="border-b border-[#f0f5f9] py-3 px-3">
+                        <span
+                          className={pill(
+                            entry.type === "INCOME" ? "ok" : "warn",
+                          )}
+                        >
+                          {entry.type === "INCOME" ? "Income" : "Spent"}
+                        </span>
+                      </td>
+                      <td
+                        className={cx(
+                          "border-b border-[#f0f5f9] py-3 px-3 text-right font-display font-extrabold whitespace-nowrap",
+                          entry.type === "INCOME"
+                            ? "text-ok"
+                            : "text-[#b5524f]",
+                        )}
+                      >
+                        {entry.type === "INCOME" ? "+" : "−"}
+                        {formatIDR(entry.amount)}
+                      </td>
+                      <td className="border-b border-[#f0f5f9] py-3 px-3 text-muted">
+                        {entry.createdByName}
+                      </td>
+                      {isSuperadmin && (
+                        <td className="border-b border-[#f0f5f9] py-3 pr-[22px] pl-3 text-right whitespace-nowrap max-[860px]:pr-3.5">
+                          <button
+                            className={cx(linkBtn, "mr-2.5")}
+                            disabled={isDeleting}
+                            onClick={() => onEdit(entry)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className={cx(linkBtn, "text-[#b5524f]")}
+                            disabled={isDeleting}
+                            onClick={() => void handleDelete(entry)}
+                          >
+                            {isDeleting ? (
+                              <>
+                                <span className={cx(spinner, "mr-1")} />
+                                Deleting…
+                              </>
+                            ) : (
+                              "Delete"
+                            )}
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -264,4 +290,3 @@ function TreasuryContent({
     </>
   );
 }
-

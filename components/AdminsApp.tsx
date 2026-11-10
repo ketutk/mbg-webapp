@@ -20,6 +20,7 @@ import {
   linkBtn,
   pill,
   shimmerCard,
+  spinner,
   sub,
   toastBox,
 } from "@/lib/ui";
@@ -48,7 +49,9 @@ export default function AdminsApp() {
         {!hydrated || authLoading ? (
           <div className={shimmerCard} aria-busy="true" />
         ) : !isSuperadmin ? (
-          <section className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}>
+          <section
+            className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}
+          >
             <div className={eyebrow}>Restricted</div>
             <h1 className="mt-2 font-display text-2xl font-extrabold text-[#183e6b]">
               Not allowed
@@ -109,6 +112,7 @@ function AdminsContent({
   onToast: (msg: string) => void;
 }) {
   const { data: admins, loading } = useAdmins();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   if (loading || !admins) {
     return <div className={shimmerCard} aria-busy="true" />;
@@ -122,11 +126,14 @@ function AdminsContent({
     ) {
       return;
     }
+    setDeletingId(admin.id);
     try {
       await deleteAdmin(admin.id);
       onToast(`Admin “${admin.username}” deleted`);
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not delete admin");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -188,12 +195,19 @@ function AdminsContent({
               <tbody>
                 {admins.map((admin) => {
                   const isDeleted = admin.deletedAt !== null;
+                  const isDeleting = deletingId === admin.id;
                   const canDelete =
                     !isDeleted &&
                     admin.role !== "SUPERADMIN" &&
                     admin.id !== currentUserId;
                   return (
-                    <tr key={admin.id} className="hover:bg-[#f9fcff]">
+                    <tr
+                      key={admin.id}
+                      className={cx(
+                        "transition-opacity hover:bg-[#f9fcff]",
+                        isDeleting && "opacity-50",
+                      )}
+                    >
                       <td className="border-b border-[#f0f5f9] py-3 pl-[22px] pr-3 font-bold text-[#204a74] max-[860px]:pl-3.5">
                         {admin.username}
                       </td>
@@ -222,6 +236,7 @@ function AdminsContent({
                         {!isDeleted && (
                           <button
                             className={cx(linkBtn, canDelete && "mr-3")}
+                            disabled={isDeleting}
                             onClick={() => onReset(admin)}
                           >
                             Reset password
@@ -230,9 +245,17 @@ function AdminsContent({
                         {canDelete && (
                           <button
                             className={cx(linkBtn, "text-[#b5524f]")}
+                            disabled={isDeleting}
                             onClick={() => void handleDelete(admin)}
                           >
-                            Delete
+                            {isDeleting ? (
+                              <>
+                                <span className={cx(spinner, "mr-1")} />
+                                Deleting…
+                              </>
+                            ) : (
+                              "Delete"
+                            )}
                           </button>
                         )}
                       </td>
@@ -247,4 +270,3 @@ function AdminsContent({
     </>
   );
 }
-

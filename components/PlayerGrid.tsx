@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   clearGames,
   removeGame,
@@ -19,6 +20,7 @@ import {
   linkBtn,
   lockedHead,
   pill,
+  spinner,
   sub,
 } from "@/lib/ui";
 
@@ -53,19 +55,33 @@ export function PlayerGrid({
   isSuperadmin?: boolean;
   onToast?: (msg: string) => void;
 }) {
+  const [pendingTicks, setPendingTicks] = useState<Set<string>>(() => new Set());
+  const [lockingId, setLockingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+
   const stats = getStats(session);
   const { min, max } = fairnessGap(stats);
   const statOf = new Map(stats.map((s) => [s.player.id, s]));
 
   async function handleTick(gameId: string, playerId: string, checked: boolean) {
+    const cellKey = `${gameId}:${playerId}`;
+    setPendingTicks((prev) => new Set(prev).add(cellKey));
     try {
       await setPlayed(session.id, gameId, playerId, checked);
     } catch (err) {
       onToast?.(err instanceof Error ? err.message : "Could not update tick");
+    } finally {
+      setPendingTicks((prev) => {
+        const next = new Set(prev);
+        next.delete(cellKey);
+        return next;
+      });
     }
   }
 
   async function handleLock(gameId: string, locked: boolean, n: number) {
+    setLockingId(gameId);
     try {
       await setGameLocked(session.id, gameId, locked);
       onToast?.(
@@ -73,26 +89,34 @@ export function PlayerGrid({
       );
     } catch (err) {
       onToast?.(err instanceof Error ? err.message : "Could not update lock");
+    } finally {
+      setLockingId(null);
     }
   }
 
   async function handleRemoveGame(gameId: string, n: number) {
     if (!window.confirm(`Remove game ${n}?`)) return;
+    setRemovingId(gameId);
     try {
       await removeGame(session.id, gameId);
       onToast?.(`Game ${n} removed`);
     } catch (err) {
       onToast?.(err instanceof Error ? err.message : "Could not remove game");
+    } finally {
+      setRemovingId(null);
     }
   }
 
   async function handleClearAll() {
     if (!window.confirm("Remove all games from this session?")) return;
+    setClearing(true);
     try {
       await clearGames(session.id);
       onToast?.("All games cleared");
     } catch (err) {
       onToast?.(err instanceof Error ? err.message : "Could not clear games");
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -131,6 +155,8 @@ export function PlayerGrid({
                 </th>
                 {session.games.map((g, i) => {
                   const isQueued = g.status === "QUEUED";
+                  const isLocking = lockingId === g.id;
+                  const isRemoving = removingId === g.id;
                   return (
                     <th
                       key={g.id}
@@ -138,6 +164,7 @@ export function PlayerGrid({
                         headGameCell,
                         g.locked && lockedHead,
                         isQueued && "bg-[#fffaf3]",
+                        isRemoving && "opacity-50",
                       )}
                     >
                       <div className="flex items-center justify-center gap-1">
@@ -155,21 +182,38 @@ export function PlayerGrid({
                               ? "Locked — click to unlock and edit ticks"
                               : "Unlocked — click to lock"
                           }
-                          onClick={() => handleLock(g.id, !g.locked, i + 1)}
+                          disabled={isLocking || isRemoving}
+                          onClick={() => void handleLock(g.id, !g.locked, i + 1)}
                         >
-                          {g.locked ? "🔒" : "🔓"}
+                          {isLocking ? (
+                            <span className={cx(spinner, "size-2.5")} />
+                          ) : g.locked ? (
+                            "🔒"
+                          ) : (
+                            "🔓"
+                          )}
                         </button>
                       </div>
                       <small className="mt-0.5 block font-semibold opacity-70">
                         {g.playerIds.length}/{session.players.length}
                       </small>
                       {isQueued && (
-                        <span className={cx(pill("warn"), "mt-1 px-1.5 py-0.5 text-[9px]")}>
+                        <span
+                          className={cx(
+                            pill("warn"),
+                            "mt-1 px-1.5 py-0.5 text-[9px]",
+                          )}
+                        >
                           Queued
                         </span>
                       )}
                       {g.status === "ON_COURT" && g.courtNumber != null && (
-                        <span className={cx(pill("ok"), "mt-1 px-1.5 py-0.5 text-[9px]")}>
+                        <span
+                          className={cx(
+                            pill("ok"),
+                            "mt-1 px-1.5 py-0.5 text-[9px]",
+                          )}
+                        >
                           C{g.courtNumber}
                         </span>
                       )}
@@ -177,9 +221,14 @@ export function PlayerGrid({
                         className="absolute top-[3px] right-[3px] size-4 rounded-full bg-transparent text-[13px] leading-none text-[#a7b9ca] opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-[#fde7e5] hover:text-[#b5524f] focus-visible:opacity-100 [@media(hover:none)]:opacity-60"
                         aria-label={`Remove game ${i + 1}`}
                         title="Remove this game"
-                        onClick={() => handleRemoveGame(g.id, i + 1)}
+                        disabled={isRemoving}
+                        onClick={() => void handleRemoveGame(g.id, i + 1)}
                       >
-                        ×
+                        {isRemoving ? (
+                          <span className={cx(spinner, "size-2.5")} />
+                        ) : (
+                          "×"
+                        )}
                       </button>
                     </th>
                   );
@@ -221,7 +270,12 @@ export function PlayerGrid({
                           <span className="flex flex-wrap items-center gap-1">
                             {isNext && <em className={pill("next")}>Next up</em>}
                             {queued > 0 && (
-                              <em className={cx(pill("warn"), "px-1.5 py-0.5 text-[9px]")}>
+                              <em
+                                className={cx(
+                                  pill("warn"),
+                                  "px-1.5 py-0.5 text-[9px]",
+                                )}
+                              >
                                 +{queued} queued
                               </em>
                             )}
@@ -243,6 +297,7 @@ export function PlayerGrid({
                     {session.games.map((g, i) => {
                       const isQueued = g.status === "QUEUED";
                       const checked = g.playerIds.includes(p.id);
+                      const isPending = pendingTicks.has(`${g.id}:${p.id}`);
                       const bodyCell = cx(
                         "min-w-16 border-b border-[#f0f5f9] py-[11px] text-center",
                         isQueued
@@ -255,12 +310,15 @@ export function PlayerGrid({
                         <td key={g.id} className={bodyCell}>
                           <input
                             type="checkbox"
-                            className="size-5 cursor-pointer accent-[#5da5e4] disabled:cursor-not-allowed disabled:opacity-60"
+                            className={cx(
+                              "size-5 cursor-pointer accent-[#5da5e4] transition-opacity disabled:cursor-not-allowed disabled:opacity-60",
+                              isPending && "animate-pulse opacity-60",
+                            )}
                             aria-label={`${p.name} played game ${i + 1}`}
                             checked={checked}
-                            disabled={g.locked}
+                            disabled={g.locked || isPending}
                             onChange={(e) =>
-                              handleTick(g.id, p.id, e.target.checked)
+                              void handleTick(g.id, p.id, e.target.checked)
                             }
                           />
                         </td>
@@ -289,10 +347,17 @@ export function PlayerGrid({
         </span>
         <button
           className={linkBtn}
-          disabled={!session.games.length}
-          onClick={handleClearAll}
+          disabled={!session.games.length || clearing}
+          onClick={() => void handleClearAll()}
         >
-          Clear all matches
+          {clearing ? (
+            <>
+              <span className={cx(spinner, "mr-1.5")} />
+              Clearing…
+            </>
+          ) : (
+            "Clear all matches"
+          )}
         </button>
       </div>
     </section>

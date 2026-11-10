@@ -10,6 +10,7 @@ import {
   courtCardEmpty,
   cx,
   pill,
+  spinner,
 } from "@/lib/ui";
 
 export function CourtCard({
@@ -18,6 +19,8 @@ export function CourtCard({
   nameOf,
   hasQueue,
   readOnly,
+  promoting,
+  finishing,
   onAssign,
   onPromote,
   onEdit,
@@ -28,6 +31,8 @@ export function CourtCard({
   nameOf: ReadonlyMap<string, string>;
   hasQueue?: boolean;
   readOnly?: boolean;
+  promoting?: boolean;
+  finishing?: boolean;
   onAssign?: (courtNumber: number) => void;
   onPromote?: (courtNumber: number) => void;
   onEdit?: (game: Game) => void;
@@ -51,6 +56,7 @@ export function CourtCard({
           <div className="flex flex-wrap gap-2">
             <button
               className={cx(btn("primary", "sm"), "flex-1")}
+              disabled={promoting}
               onClick={() => onAssign?.(courtNumber)}
             >
               ＋ Assign players
@@ -58,9 +64,17 @@ export function CourtCard({
             {hasQueue && (
               <button
                 className={cx(btn("light", "sm"), "flex-1")}
+                disabled={promoting}
                 onClick={() => onPromote?.(courtNumber)}
               >
-                ▶ Play next in queue
+                {promoting ? (
+                  <>
+                    <span className={cx(spinner, "mr-1.5")} />
+                    Starting…
+                  </>
+                ) : (
+                  "▶ Play next in queue"
+                )}
               </button>
             )}
           </div>
@@ -102,7 +116,7 @@ export function CourtCard({
               Team A
             </div>
             {teams[0].map((id) => (
-              <div key={id} className="flex items-center gap-2 min-w-0">
+              <div key={id} className="flex min-w-0 items-center gap-2">
                 <span className={avatar}>{initials(playerName(id))}</span>
                 <span className="truncate text-xs font-extrabold text-[#204a74]">
                   {playerName(id)}
@@ -118,7 +132,7 @@ export function CourtCard({
               Team B
             </div>
             {teams[1].map((id) => (
-              <div key={id} className="flex items-center gap-2 min-w-0">
+              <div key={id} className="flex min-w-0 items-center gap-2">
                 <span className={avatar}>{initials(playerName(id))}</span>
                 <span className="truncate text-xs font-extrabold text-[#204a74]">
                   {playerName(id)}
@@ -144,19 +158,27 @@ export function CourtCard({
         <div className="flex justify-end gap-2">
           <button
             className={btn("light", "sm")}
+            disabled={finishing}
             onClick={() => onEdit?.(game)}
           >
             Edit players
           </button>
           <button
             className={btn("primary", "sm")}
+            disabled={finishing}
             onClick={() => onFinish?.(game)}
           >
-            ✓ Finish match
+            {finishing ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Finishing…
+              </>
+            ) : (
+              "✓ Finish match"
+            )}
           </button>
         </div>
       )}
     </div>
   );
 }
-

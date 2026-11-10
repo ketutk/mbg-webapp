@@ -628,13 +628,13 @@ export const POST = route({ roles: ["ADMIN", "SUPERADMIN"], body: assignInput },
 - Never trust client-derived values: counts, balances, roles, `locked`, `status` are computed server-side.
 - Error `fields` in API responses come from `error.flatten().fieldErrors`.
 
-## B.11 Client data layer (new, no extra library)
+## B.11 Client data layer (`@tanstack/react-query`)
 
 - `lib/api.ts`: `api<T>(path, { method, body })` wrapper around `fetch` (`credentials: "same-origin"`, JSON headers, throws `ApiError { status, code, message, fields }`).
-- `lib/query.ts`: ≈60-line cache: `useQuery(key, fetcher, { pollMs })` (built on `useSyncExternalStore`), `invalidate(prefix)`, `setQueryData(key, updater)` for optimistic updates. Polling pauses when `document.hidden`; refetches on `focus`.
-- Mutations: call API → on success `invalidate`; for ticks/court actions apply optimistic `setQueryData`, roll back on `ApiError` and surface the message through the screen's `showToast`.
-- `lib/auth.ts` (client): `useAuth()` returns `{ user, status }` from `/api/auth/me`; `login()`, `logout()` actions. UI gates with `user?.role`, never with anything stored in the browser.
-- Selected-session id stays in `localStorage` (key `mbg-current-v2`) as a per-device preference only; no data is stored there anymore. Remove the old `mbg-match-v1` writes (optionally read it once for the legacy import, Phase 8).
+- `lib/query.ts` & `components/QueryProvider.tsx`: exports the shared TanStack `queryClient` (`QueryClient`) and typed `queryKeys`, provided at the root in `app/layout.tsx` via `QueryProvider`. Every data fetch (`useAuth`, `useSessionsList`, `useSessionSummary`, `useSessionDetail`, `useTreasury`, `useAdmins`) uses TanStack `useQuery` (`refetchInterval` with `refetchIntervalInBackground: false`, `refetchOnWindowFocus: true`).
+- Mutations & Loading States: call API → `queryClient.invalidateQueries`; for ticks/court/queue actions apply optimistic `queryClient.setQueryData` with rollback on error, and show inline `spinner` loading states on every action button so interactions never feel laggy.
+- `lib/auth.ts` (client): `useAuth()` returns `{ user, loading }` from `/api/auth/me` via TanStack `useQuery`; `login()`, `logout()` actions update/invalidate `queryClient`. UI gates with `user?.role`, never with anything stored in the browser.
+- Selected-session id stays in `localStorage` (key `mbg-current-v2`) as a per-device preference only; no data is stored there anymore.
 
 ## B.12 Routing, SEO & security checklist for every new route
 

@@ -7,6 +7,7 @@ import type { EntryType, TreasuryEntry } from "@/lib/types";
 import { Modal } from "./Modal";
 import {
   btn,
+  cx,
   errorNotice,
   field,
   fieldInput,
@@ -14,6 +15,7 @@ import {
   fieldRow,
   modalActions,
   notice,
+  spinner,
 } from "@/lib/ui";
 
 export function TreasuryEntryDialog({
@@ -175,13 +177,18 @@ export function TreasuryEntryDialog({
             className={btn("primary")}
             disabled={busy}
           >
-            {busy
-              ? "Saving…"
-              : editingEntry
-                ? "Save changes"
-                : type === "EXPENSE"
-                  ? "Add spent"
-                  : "Add income"}
+            {busy ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Saving…
+              </>
+            ) : editingEntry ? (
+              "Save changes"
+            ) : type === "EXPENSE" ? (
+              "Add spent"
+            ) : (
+              "Add income"
+            )}
           </button>
         </div>
       </form>

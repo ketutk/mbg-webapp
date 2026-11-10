@@ -7,6 +7,7 @@ import type { Session } from "@/lib/types";
 import { Modal } from "./Modal";
 import {
   btn,
+  cx,
   errorNotice,
   field,
   fieldInput,
@@ -14,6 +15,7 @@ import {
   fieldRow,
   modalActions,
   notice,
+  spinner,
 } from "@/lib/ui";
 
 export function SessionSettingsDialog({
@@ -119,7 +121,14 @@ export function SessionSettingsDialog({
             className={btn("primary")}
             disabled={busy}
           >
-            {busy ? "Saving…" : "Save changes"}
+            {busy ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Saving…
+              </>
+            ) : (
+              "Save changes"
+            )}
           </button>
         </div>
       </form>

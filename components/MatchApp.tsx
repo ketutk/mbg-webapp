@@ -36,6 +36,7 @@ import {
   h1,
   selectInput,
   shimmerCard,
+  spinner,
   toastBox,
 } from "@/lib/ui";
 
@@ -182,6 +183,11 @@ function SessionView({
   const [assignConfig, setAssignConfig] = useState<AssignDialogConfig | null>(
     null,
   );
+  const [deletingSession, setDeletingSession] = useState(false);
+  const [promotingCourt, setPromotingCourt] = useState<number | null>(null);
+  const [finishingGameId, setFinishingGameId] = useState<string | null>(null);
+  const [movingGameId, setMovingGameId] = useState<string | null>(null);
+  const [removingGameId, setRemovingGameId] = useState<string | null>(null);
 
   const isSuperadmin = user.role === "SUPERADMIN";
   const rec = useMemo(() => recommend(session, seed), [session, seed]);
@@ -189,54 +195,70 @@ function SessionView({
   const queue = useMemo(() => queueOf(session), [session]);
 
   async function handleFinishGame(game: Game) {
+    setFinishingGameId(game.id);
     try {
       await finishMatch(session.id, game.id);
       onToast(`Court ${game.courtNumber ?? ""} finished`);
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not finish match");
+    } finally {
+      setFinishingGameId(null);
     }
   }
 
   async function handlePromoteNext(courtNumber: number) {
     const first = queue[0];
     if (!first) return;
+    setPromotingCourt(courtNumber);
     try {
       await startQueuedMatch(session.id, first.id, courtNumber);
       onToast(`Moved queued match onto Court ${courtNumber}`);
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not start queued match");
+    } finally {
+      setPromotingCourt(null);
     }
   }
 
   async function handleMoveQueue(index: number, direction: -1 | 1) {
     const target = index + direction;
     if (target < 0 || target >= queue.length) return;
+    const moving = queue[index];
     const ids = queue.map((g) => g.id);
     [ids[index], ids[target]] = [ids[target], ids[index]];
+    setMovingGameId(moving.id);
     try {
       await reorderQueue(session.id, ids);
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not reorder queue");
+    } finally {
+      setMovingGameId(null);
     }
   }
 
   async function handleRemoveQueued(game: Game) {
     if (!window.confirm("Remove this queued match?")) return;
+    setRemovingGameId(game.id);
     try {
       await removeGame(session.id, game.id);
       onToast("Queued match removed");
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not remove match");
+    } finally {
+      setRemovingGameId(null);
     }
   }
 
   async function handleDeleteSession() {
     if (!window.confirm(`Delete session “${session.name}”?`)) return;
+    setDeletingSession(true);
     try {
       await deleteSession(session.id);
       onToast("Session deleted");
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not delete session");
+    } finally {
+      setDeletingSession(false);
     }
   }
 
@@ -286,8 +308,19 @@ function SessionView({
               >
                 Session settings
               </button>
-              <button className={btn("danger")} onClick={handleDeleteSession}>
-                Delete
+              <button
+                className={btn("danger")}
+                disabled={deletingSession}
+                onClick={() => void handleDeleteSession()}
+              >
+                {deletingSession ? (
+                  <>
+                    <span className={cx(spinner, "mr-1.5")} />
+                    Deleting…
+                  </>
+                ) : (
+                  "Delete"
+                )}
               </button>
             </>
           )}
@@ -296,6 +329,8 @@ function SessionView({
 
       <CourtBoard
         session={session}
+        promotingCourt={promotingCourt}
+        finishingGameId={finishingGameId}
         onAssignCourt={(courtNumber) =>
           setAssignConfig({
             mode: "court",
@@ -308,18 +343,20 @@ function SessionView({
               : undefined,
           })
         }
-        onPromoteNext={handlePromoteNext}
+        onPromoteNext={(c) => void handlePromoteNext(c)}
         onEditGame={(game) =>
           setAssignConfig({
             mode: game.status === "ON_COURT" ? "court" : "queue",
             editingGame: game,
           })
         }
-        onFinishGame={handleFinishGame}
+        onFinishGame={(g) => void handleFinishGame(g)}
       />
 
       <QueuePanel
         session={session}
+        movingGameId={movingGameId}
+        removingGameId={removingGameId}
         onAddQueue={() =>
           setAssignConfig({
             mode: "queue",
@@ -337,8 +374,8 @@ function SessionView({
             editingGame: game,
           })
         }
-        onRemoveGame={handleRemoveQueued}
-        onMoveQueue={handleMoveQueue}
+        onRemoveGame={(g) => void handleRemoveQueued(g)}
+        onMoveQueue={(idx, dir) => void handleMoveQueue(idx, dir)}
       />
 
       <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)] items-start gap-[17px] max-[860px]:grid-cols-1">

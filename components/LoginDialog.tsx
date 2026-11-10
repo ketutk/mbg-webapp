@@ -6,11 +6,13 @@ import { loginSchema } from "@/lib/schemas";
 import { Modal } from "./Modal";
 import {
   btn,
+  cx,
   errorNotice,
   field,
   fieldInput,
   fieldLabel,
   modalActions,
+  spinner,
 } from "@/lib/ui";
 
 export function LoginDialog({
@@ -93,7 +95,14 @@ export function LoginDialog({
             className={btn("primary")}
             disabled={busy}
           >
-            {busy ? "Signing in…" : "Log in"}
+            {busy ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Signing in…
+              </>
+            ) : (
+              "Log in"
+            )}
           </button>
         </div>
       </form>
