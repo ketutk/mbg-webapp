@@ -111,39 +111,26 @@ export default function MatchApp() {
       <main>
         {!hydrated || authLoading ? (
           <div className={shimmerCard} aria-busy="true" />
+        ) : user ? (
+          <InternalMatchesWorkspace
+            user={user}
+            currentSessionId={currentId}
+            onSelectSession={(id) => {
+              selectSession(id);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            onNewSession={() => setCreating(true)}
+            onToast={showToast}
+          />
         ) : (
-          <>
-            {currentId && (
-              <div className="mb-8">
-                {user ? (
-                  <AdminSessionContainer
-                    key={currentId}
-                    sessionId={currentId}
-                    user={user}
-                    onToast={showToast}
-                  />
-                ) : (
-                  <VisitorView
-                    key={currentId}
-                    sessionId={currentId}
-                    onBackToList={() => selectSession(null)}
-                  />
-                )}
-              </div>
-            )}
-
-            <SessionsDirectorySection
-              user={user}
-              currentSessionId={currentId}
-              onSelectSession={(id) => {
-                selectSession(id);
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              onNewSession={() => setCreating(true)}
-              onLogin={() => setLoggingIn(true)}
-              onToast={showToast}
-            />
-          </>
+          <ExternalMatchesView
+            currentSessionId={currentId}
+            onSelectSession={(id) => {
+              selectSession(id);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            onLogin={() => setLoggingIn(true)}
+          />
         )}
       </main>
 
@@ -170,23 +157,291 @@ export default function MatchApp() {
   );
 }
 
-function SessionsDirectorySection({
+function ExternalMatchesView({
+  currentSessionId,
+  onSelectSession,
+  onLogin,
+}: {
+  currentSessionId: string | null;
+  onSelectSession: (id: string) => void;
+  onLogin: () => void;
+}) {
+  const [searchText, setSearchText] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 9;
+
+  const filterParams = useMemo(
+    () => ({
+      status: "OPEN" as const,
+      q: searchText.trim() || undefined,
+      page,
+      pageSize,
+    }),
+    [searchText, page],
+  );
+
+  const { data, loading, fetching } = useSessionsList(filterParams);
+
+  if (currentSessionId) {
+    return (
+      <VisitorView
+        key={currentSessionId}
+        sessionId={currentSessionId}
+        onBackToList={() => selectSession(null)}
+      />
+    );
+  }
+
+  if (loading && !data) {
+    return <div className={shimmerCard} aria-busy="true" />;
+  }
+
+  if (!data) return null;
+
+  return (
+    <>
+      <section className="mt-8 mb-6 flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
+        <div>
+          <div className={eyebrow}>Live match day</div>
+          <h1 className={h1}>Play fair. Play more.</h1>
+          <div className="mt-1 text-xs text-muted">
+            Select an active session below to check live courts, upcoming queue,
+            and games played per player.
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {fetching && (
+            <span
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#5089b7]"
+              aria-live="polite"
+            >
+              <span className={spinner} />
+              Syncing…
+            </span>
+          )}
+          <span className={pill("ok")}>
+            {data.openCount} open session{data.openCount === 1 ? "" : "s"}
+          </span>
+        </div>
+      </section>
+
+      {(data.openCount > 3 || searchText.trim().length > 0) && (
+        <div className="mb-5 flex flex-wrap items-center gap-2.5">
+          <div className="relative max-w-[360px] flex-1">
+            <input
+              type="search"
+              placeholder="Find session by name (e.g. Minggu pagi)…"
+              value={searchText}
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setPage(1);
+              }}
+              className={cx(fieldInput, "bg-white py-2 text-xs")}
+            />
+          </div>
+          {searchText.trim().length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchText("");
+                setPage(1);
+              }}
+              className={cx(linkBtn, "text-[#b5524f] hover:underline")}
+            >
+              Clear search
+            </button>
+          )}
+        </div>
+      )}
+
+      {data.sessions.length === 0 ? (
+        <section
+          className={cx(
+            card,
+            "mx-auto mt-6 max-w-[520px] px-6 py-10 text-center",
+          )}
+        >
+          <div className={eyebrow}>No active sessions</div>
+          <h2 className="mt-2 font-display text-xl font-extrabold text-[#183e6b]">
+            {searchText.trim()
+              ? "No matching open sessions"
+              : "No open sessions right now"}
+          </h2>
+          <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
+            {searchText.trim()
+              ? "Try clearing your search to see all open sessions."
+              : "Check back on game day when an organiser opens a session, or sign in if you are an organiser."}
+          </p>
+          {searchText.trim() ? (
+            <button
+              type="button"
+              className={btn("light")}
+              onClick={() => {
+                setSearchText("");
+                setPage(1);
+              }}
+            >
+              Show all open sessions
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={btn("primary")}
+              onClick={onLogin}
+            >
+              Admin login
+            </button>
+          )}
+        </section>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-4 max-[960px]:grid-cols-2 max-[600px]:grid-cols-1">
+            {data.sessions.map((item) => (
+              <article
+                key={item.id}
+                onClick={() => onSelectSession(item.id)}
+                className={cx(
+                  card,
+                  "group flex cursor-pointer flex-col justify-between p-5 transition-all duration-150 hover:-translate-y-0.5 hover:border-[#b9dbf7] hover:shadow-[0_14px_34px_#3a7fb81f]",
+                )}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={eyebrow}>{fmtDate(item.date)}</span>
+                    <span className={pill("ok")}>Open</span>
+                  </div>
+                  <h2 className="mt-2 font-display text-lg font-extrabold tracking-[-0.4px] text-[#183e6b] group-hover:text-[#337fc4]">
+                    {item.name}
+                  </h2>
+
+                  <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl border border-[#e6f1fb] bg-[#f7fbff] p-3 text-center">
+                    <div>
+                      <div className="font-display text-base font-extrabold text-[#204a74]">
+                        {item.courtCount}
+                      </div>
+                      <div className="text-[10px] font-bold text-muted">
+                        Court{item.courtCount === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <div className="border-x border-[#e3eff9]">
+                      <div className="font-display text-base font-extrabold text-[#204a74]">
+                        {item.playerCount}
+                      </div>
+                      <div className="text-[10px] font-bold text-muted">
+                        Player{item.playerCount === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="font-display text-base font-extrabold text-[#204a74]">
+                        {item.gameCount}
+                      </div>
+                      <div className="text-[10px] font-bold text-muted">
+                        Match{item.gameCount === 1 ? "" : "es"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between border-t border-[#eef4f9] pt-3.5">
+                  <span className="text-[11px] font-bold text-muted">
+                    Live courts & queue
+                  </span>
+                  <span className="text-xs font-extrabold text-[#3c78aa] group-hover:translate-x-0.5 transition-transform">
+                    View session →
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          {data.totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-center gap-2.5">
+              <button
+                type="button"
+                className={cx(
+                  btn("light", "sm"),
+                  "disabled:cursor-not-allowed disabled:opacity-45",
+                )}
+                disabled={data.page <= 1 || fetching}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ← Prev
+              </button>
+              <span className="px-2 text-xs font-extrabold text-[#204a74]">
+                Page {data.page} of {data.totalPages}
+              </span>
+              <button
+                type="button"
+                className={cx(
+                  btn("light", "sm"),
+                  "disabled:cursor-not-allowed disabled:opacity-45",
+                )}
+                disabled={data.page >= data.totalPages || fetching}
+                onClick={() =>
+                  setPage((p) => Math.min(data.totalPages, p + 1))
+                }
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function InternalMatchesWorkspace({
   user,
   currentSessionId,
   onSelectSession,
   onNewSession,
-  onLogin,
   onToast,
 }: {
-  user: AuthUser | null;
+  user: AuthUser;
   currentSessionId: string | null;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
-  onLogin: () => void;
   onToast: (msg: string) => void;
 }) {
-  const isOrganiser = user !== null;
-  const isSuperadmin = user?.role === "SUPERADMIN";
+  return (
+    <>
+      {currentSessionId && (
+        <div className="mb-8">
+          <AdminSessionContainer
+            key={currentSessionId}
+            sessionId={currentSessionId}
+            user={user}
+            onToast={onToast}
+          />
+        </div>
+      )}
+
+      <AdminSessionsTableSection
+        user={user}
+        currentSessionId={currentSessionId}
+        onSelectSession={onSelectSession}
+        onNewSession={onNewSession}
+        onToast={onToast}
+      />
+    </>
+  );
+}
+
+function AdminSessionsTableSection({
+  user,
+  currentSessionId,
+  onSelectSession,
+  onNewSession,
+  onToast,
+}: {
+  user: AuthUser;
+  currentSessionId: string | null;
+  onSelectSession: (id: string) => void;
+  onNewSession: () => void;
+  onToast: (msg: string) => void;
+}) {
+  const isSuperadmin = user.role === "SUPERADMIN";
 
   const [preset, setPreset] = useState<PeriodPreset>("all");
   const [customFrom, setCustomFrom] = useState("");
@@ -226,12 +481,12 @@ function SessionsDirectorySection({
     () => ({
       from: dateRange.from,
       to: dateRange.to,
-      status: isOrganiser ? statusFilter : ("OPEN" as const),
+      status: statusFilter,
       q: searchText.trim() || undefined,
       page,
       pageSize,
     }),
-    [dateRange.from, dateRange.to, isOrganiser, statusFilter, searchText, page, pageSize],
+    [dateRange.from, dateRange.to, statusFilter, searchText, page, pageSize],
   );
 
   const { data, loading, fetching } = useSessionsList(filterParams);
@@ -244,7 +499,7 @@ function SessionsDirectorySection({
 
   const hasActiveFilters =
     preset !== "all" ||
-    (isOrganiser && statusFilter !== "ALL") ||
+    statusFilter !== "ALL" ||
     searchText.trim().length > 0;
 
   function resetFilters() {
@@ -306,25 +561,21 @@ function SessionsDirectorySection({
       {!currentSessionId && (
         <section className="mt-8 mb-5 flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
           <div>
-            <div className={eyebrow}>Match sessions</div>
-            <h1 className={h1}>Play fair. Play more.</h1>
+            <div className={eyebrow}>Organiser dashboard</div>
+            <h1 className={h1}>Match sessions</h1>
             <div className="mt-1 text-xs text-muted">
-              {isOrganiser
-                ? `Browse all ${data.openCount + data.closedCount} sessions (${data.openCount} open · ${data.closedCount} closed). Select any session to view or manage courts and matches.`
-                : `Showing ${data.openCount} open session${data.openCount === 1 ? "" : "s"}. Select a session to view live courts, queue, and player game counts.`}
+              Browse all {data.openCount + data.closedCount} sessions (
+              {data.openCount} open · {data.closedCount} closed). Select any
+              session to manage courts, queue, and player checklist.
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {isSuperadmin ? (
+          {isSuperadmin && (
+            <div className="flex flex-wrap items-center gap-2">
               <button className={btn("primary")} onClick={onNewSession}>
                 ＋ New session
               </button>
-            ) : !user ? (
-              <button className={btn("light")} onClick={onLogin}>
-                Admin login
-              </button>
-            ) : null}
-          </div>
+            </div>
+          )}
         </section>
       )}
 
@@ -340,16 +591,13 @@ function SessionsDirectorySection({
                 All game sessions
               </h2>
               <span className={pill("ok")}>{data.openCount} open</span>
-              {isOrganiser && (
-                <span className={pill("default")}>
-                  {data.closedCount} closed
-                </span>
-              )}
+              <span className={pill("default")}>
+                {data.closedCount} closed
+              </span>
             </div>
             <div className={sub}>
-              {isOrganiser
-                ? "Closed sessions are hidden from public visitors and visible only to admins and superadmins."
-                : "Select any open session to inspect live courts, upcoming queue, and player match counts."}
+              Closed sessions are hidden from public visitors and visible only
+              to admins and superadmins.
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -440,38 +688,36 @@ function SessionsDirectorySection({
               </div>
             )}
 
-            {isOrganiser && (
-              <div
-                className="inline-flex rounded-xl border border-[#d9eafa] bg-white p-0.5"
-                role="group"
-                aria-label="Session status filter"
-              >
-                {(
-                  [
-                    { id: "ALL", label: "All status" },
-                    { id: "OPEN", label: "Open" },
-                    { id: "CLOSED", label: "Closed" },
-                  ] as const
-                ).map((st) => (
-                  <button
-                    key={st.id}
-                    type="button"
-                    onClick={() => {
-                      setStatusFilter(st.id);
-                      setPage(1);
-                    }}
-                    className={cx(
-                      "rounded-[9px] px-2.5 py-1 text-[11px] font-extrabold transition-colors",
-                      statusFilter === st.id
-                        ? "bg-[#eaf5ff] text-[#204a74]"
-                        : "text-[#6b8bab] hover:text-[#204a74]",
-                    )}
-                  >
-                    {st.label}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div
+              className="inline-flex rounded-xl border border-[#d9eafa] bg-white p-0.5"
+              role="group"
+              aria-label="Session status filter"
+            >
+              {(
+                [
+                  { id: "ALL", label: "All status" },
+                  { id: "OPEN", label: "Open" },
+                  { id: "CLOSED", label: "Closed" },
+                ] as const
+              ).map((st) => (
+                <button
+                  key={st.id}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(st.id);
+                    setPage(1);
+                  }}
+                  className={cx(
+                    "rounded-[9px] px-2.5 py-1 text-[11px] font-extrabold transition-colors",
+                    statusFilter === st.id
+                      ? "bg-[#eaf5ff] text-[#204a74]"
+                      : "text-[#6b8bab] hover:text-[#204a74]",
+                  )}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
 
             <div className="relative min-w-[200px] flex-1">
               <input
@@ -495,7 +741,7 @@ function SessionsDirectorySection({
               ? "No sessions match your current filter. Try adjusting the date range, status, or search query."
               : isSuperadmin
                 ? "No game sessions yet. Click “＋ New session” to create your first session."
-                : "No open game sessions available right now."}
+                : "No game sessions yet. Ask a superadmin to create the first session."}
           </div>
         ) : (
           <div className="overflow-x-auto border-t border-[#eef4f9]">
@@ -588,25 +834,23 @@ function SessionsDirectorySection({
                           >
                             {isCurrent ? "Hide detail" : "View detail"}
                           </button>
-                          {isOrganiser && (
-                            <button
-                              type="button"
-                              className={linkBtn}
-                              disabled={isToggling}
-                              onClick={() => void handleToggleStatus(item)}
-                            >
-                              {isToggling ? (
-                                <>
-                                  <span className={cx(spinner, "mr-1")} />
-                                  Saving…
-                                </>
-                              ) : item.status === "OPEN" ? (
-                                "Close"
-                              ) : (
-                                "Reopen"
-                              )}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className={linkBtn}
+                            disabled={isToggling}
+                            onClick={() => void handleToggleStatus(item)}
+                          >
+                            {isToggling ? (
+                              <>
+                                <span className={cx(spinner, "mr-1")} />
+                                Saving…
+                              </>
+                            ) : item.status === "OPEN" ? (
+                              "Close"
+                            ) : (
+                              "Reopen"
+                            )}
+                          </button>
                           {isSuperadmin && (
                             <button
                               type="button"
