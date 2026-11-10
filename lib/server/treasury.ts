@@ -41,19 +41,14 @@ function buildRecentMonths(anchorYm: string, count = 6): string[] {
   return out;
 }
 
-export async function getTreasurySummary(
-  params: TreasuryFilterParams = {},
-): Promise<TreasurySummary> {
-  const pageSize = Math.min(100, Math.max(5, Math.trunc(params.pageSize || 10)));
-  const requestedPage = Math.max(1, Math.trunc(params.page || 1));
-
+function buildTreasuryWhere(params: TreasuryFilterParams): Prisma.TreasuryEntryWhereInput {
   const fromStr = params.from && DATE_RE.test(params.from) ? params.from : undefined;
   const toStr = params.to && DATE_RE.test(params.to) ? params.to : undefined;
   const typeFilter =
     params.type === "INCOME" || params.type === "EXPENSE" ? params.type : undefined;
-  const qFilter = params.q?.trim() ? params.q.trim() : undefined;
+  const qFilter = params.q?.trim() || undefined;
 
-  const filteredWhere: Prisma.TreasuryEntryWhereInput = {
+  return {
     deletedAt: null,
     ...(fromStr || toStr
       ? {
@@ -64,15 +59,56 @@ export async function getTreasurySummary(
         }
       : {}),
     ...(typeFilter ? { type: typeFilter } : {}),
-    ...(qFilter
-      ? {
-          purpose: {
-            contains: qFilter,
-            mode: "insensitive",
-          },
-        }
-      : {}),
+    ...(qFilter ? { purpose: { contains: qFilter, mode: "insensitive" } } : {}),
   };
+}
+
+function computeMonthlyBuckets(
+  items: { date: Date; type: "INCOME" | "EXPENSE"; amount: number }[],
+): TreasuryMonthlyBucket[] {
+  const latestYm = items[0]
+    ? toDateStr(items[0].date).slice(0, 7)
+    : toDateStr(new Date()).slice(0, 7);
+  const monthKeys = buildRecentMonths(latestYm, 6);
+  const bucketMap = new Map<string, TreasuryMonthlyBucket>(
+    monthKeys.map((m) => [m, { month: m, income: 0, expense: 0 }]),
+  );
+
+  for (const item of items) {
+    const ym = toDateStr(item.date).slice(0, 7);
+    const bucket = bucketMap.get(ym);
+    if (!bucket) continue;
+    if (item.type === "INCOME") bucket.income += item.amount;
+    else bucket.expense += item.amount;
+  }
+
+  return Array.from(bucketMap.values());
+}
+
+function extractSums(
+  allTime: { type: "INCOME" | "EXPENSE"; _sum: { amount: number | null } }[],
+  period: { type: "INCOME" | "EXPENSE"; _sum: { amount: number | null }; _count: { _all: number } }[],
+) {
+  const income = allTime.find((r) => r.type === "INCOME")?._sum.amount ?? 0;
+  const expense = allTime.find((r) => r.type === "EXPENSE")?._sum.amount ?? 0;
+  const pInc = period.find((r) => r.type === "INCOME");
+  const pExp = period.find((r) => r.type === "EXPENSE");
+  return {
+    income,
+    expense,
+    periodIncome: pInc?._sum.amount ?? 0,
+    periodIncomeCount: pInc?._count._all ?? 0,
+    periodExpense: pExp?._sum.amount ?? 0,
+    periodExpenseCount: pExp?._count._all ?? 0,
+  };
+}
+
+export async function getTreasurySummary(
+  params: TreasuryFilterParams = {},
+): Promise<TreasurySummary> {
+  const pageSize = Math.min(100, Math.max(5, Math.trunc(params.pageSize || 10)));
+  const requestedPage = Math.max(1, Math.trunc(params.page || 1));
+  const filteredWhere = buildTreasuryWhere(params);
 
   const [allTimeSums, periodSums, totalEntries, allActiveForChart] =
     await Promise.all([
@@ -105,56 +141,19 @@ export async function getTreasurySummary(
     take: pageSize,
   });
 
-  let income = 0;
-  let expense = 0;
-  for (const row of allTimeSums) {
-    if (row.type === "INCOME") income = row._sum.amount ?? 0;
-    if (row.type === "EXPENSE") expense = row._sum.amount ?? 0;
-  }
-
-  let periodIncome = 0;
-  let periodExpense = 0;
-  let periodIncomeCount = 0;
-  let periodExpenseCount = 0;
-  for (const row of periodSums) {
-    if (row.type === "INCOME") {
-      periodIncome = row._sum.amount ?? 0;
-      periodIncomeCount = row._count._all;
-    }
-    if (row.type === "EXPENSE") {
-      periodExpense = row._sum.amount ?? 0;
-      periodExpenseCount = row._count._all;
-    }
-  }
-
-  const latestYm = allActiveForChart[0]
-    ? toDateStr(allActiveForChart[0].date).slice(0, 7)
-    : toDateStr(new Date()).slice(0, 7);
-  const monthKeys = buildRecentMonths(latestYm, 6);
-  const bucketMap = new Map<string, TreasuryMonthlyBucket>(
-    monthKeys.map((m) => [m, { month: m, income: 0, expense: 0 }]),
-  );
-
-  for (const item of allActiveForChart) {
-    const ym = toDateStr(item.date).slice(0, 7);
-    const bucket = bucketMap.get(ym);
-    if (!bucket) continue;
-    if (item.type === "INCOME") bucket.income += item.amount;
-    else bucket.expense += item.amount;
-  }
-
+  const sums = extractSums(allTimeSums, periodSums);
   const userMap = await resolveUsernames(entries.map((e) => e.createdById));
 
   return {
-    balance: income - expense,
-    income,
-    expense,
-    periodIncome,
-    periodExpense,
-    periodNet: periodIncome - periodExpense,
-    periodIncomeCount,
-    periodExpenseCount,
-    monthly: Array.from(bucketMap.values()),
+    balance: sums.income - sums.expense,
+    income: sums.income,
+    expense: sums.expense,
+    periodIncome: sums.periodIncome,
+    periodExpense: sums.periodExpense,
+    periodNet: sums.periodIncome - sums.periodExpense,
+    periodIncomeCount: sums.periodIncomeCount,
+    periodExpenseCount: sums.periodExpenseCount,
+    monthly: computeMonthlyBuckets(allActiveForChart),
     entries: entries.map((e) => toTreasuryEntryDTO(e, userMap)),
     totalEntries,
     page,

@@ -18,6 +18,32 @@ import {
   spinner,
 } from "@/lib/ui";
 
+async function saveEntry(
+  editingEntry: TreasuryEntry | undefined,
+  input: { type: EntryType; amount: number; purpose: string; date: string },
+) {
+  if (editingEntry) {
+    const parsed = treasuryPatchInput.safeParse(input);
+    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Check entry fields");
+    await editTreasuryEntry(editingEntry.id, parsed.data);
+    return "Treasury entry updated";
+  }
+  const parsed = treasuryInput.safeParse(input);
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Check entry fields");
+  await addTreasuryEntry(parsed.data);
+  return input.type === "EXPENSE" ? "Spent entry added" : "Income entry added";
+}
+
+function getDialogTitle(editing: boolean, type: EntryType): string {
+  if (editing) return "Edit treasury entry";
+  return type === "EXPENSE" ? "Add spent (expense)" : "Add income";
+}
+
+function getSubmitLabel(editing: boolean, type: EntryType): string {
+  if (editing) return "Save changes";
+  return type === "EXPENSE" ? "Add spent" : "Add income";
+}
+
 export function TreasuryEntryDialog({
   initialType = "EXPENSE",
   editingEntry,
@@ -29,12 +55,8 @@ export function TreasuryEntryDialog({
   onClose: () => void;
   onSaved: (msg: string) => void;
 }) {
-  const [type, setType] = useState<EntryType>(
-    editingEntry?.type ?? initialType,
-  );
-  const [amount, setAmount] = useState(
-    editingEntry ? String(editingEntry.amount) : "",
-  );
+  const [type, setType] = useState<EntryType>(editingEntry?.type ?? initialType);
+  const [amount, setAmount] = useState(editingEntry ? String(editingEntry.amount) : "");
   const [purpose, setPurpose] = useState(editingEntry?.purpose ?? "");
   const [date, setDate] = useState(editingEntry?.date ?? todayISO);
   const [error, setError] = useState("");
@@ -43,41 +65,15 @@ export function TreasuryEntryDialog({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const numAmount = Number(amount);
-
     setBusy(true);
     try {
-      if (editingEntry) {
-        const parsed = treasuryPatchInput.safeParse({
-          type,
-          amount: numAmount,
-          purpose: purpose.trim(),
-          date,
-        });
-        if (!parsed.success) {
-          setError(parsed.error.issues[0]?.message ?? "Check entry fields");
-          setBusy(false);
-          return;
-        }
-        await editTreasuryEntry(editingEntry.id, parsed.data);
-        onSaved("Treasury entry updated");
-      } else {
-        const parsed = treasuryInput.safeParse({
-          type,
-          amount: numAmount,
-          purpose: purpose.trim(),
-          date,
-        });
-        if (!parsed.success) {
-          setError(parsed.error.issues[0]?.message ?? "Check entry fields");
-          setBusy(false);
-          return;
-        }
-        await addTreasuryEntry(parsed.data);
-        onSaved(
-          type === "EXPENSE" ? "Spent entry added" : "Income entry added",
-        );
-      }
+      const msg = await saveEntry(editingEntry, {
+        type,
+        amount: Number(amount),
+        purpose: purpose.trim(),
+        date,
+      });
+      onSaved(msg);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save entry");
@@ -86,15 +82,11 @@ export function TreasuryEntryDialog({
     }
   }
 
+  const isEditing = Boolean(editingEntry);
+
   return (
     <Dialog
-      title={
-        editingEntry
-          ? "Edit treasury entry"
-          : type === "EXPENSE"
-            ? "Add spent (expense)"
-            : "Add income"
-      }
+      title={getDialogTitle(isEditing, type)}
       description="Record club income or expenses in whole IDR."
       onClose={onClose}
     >
@@ -163,31 +155,17 @@ export function TreasuryEntryDialog({
         {error && <div className={errorNotice}>{error}</div>}
 
         <div className={modalActions}>
-          <button
-            type="button"
-            className={btn("light")}
-            onClick={onClose}
-            disabled={busy}
-          >
+          <button type="button" className={btn("light")} onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button
-            type="submit"
-            id="treasury-submit"
-            className={btn("primary")}
-            disabled={busy}
-          >
+          <button type="submit" id="treasury-submit" className={btn("primary")} disabled={busy}>
             {busy ? (
               <>
                 <span className={cx(spinner, "mr-1.5")} />
                 Saving…
               </>
-            ) : editingEntry ? (
-              "Save changes"
-            ) : type === "EXPENSE" ? (
-              "Add spent"
             ) : (
-              "Add income"
+              getSubmitLabel(isEditing, type)
             )}
           </button>
         </div>
@@ -195,4 +173,3 @@ export function TreasuryEntryDialog({
     </Dialog>
   );
 }
-

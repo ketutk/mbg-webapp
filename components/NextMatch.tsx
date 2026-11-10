@@ -2,7 +2,7 @@
 
 import { fairnessGap, getStats, type Recommendation } from "@/lib/match";
 import type { Player, Session, Team } from "@/lib/types";
-import { initials } from "./PlayerGrid";
+import { initials } from "@/components/ui";
 import {
   avatarOnCourt,
   btn,

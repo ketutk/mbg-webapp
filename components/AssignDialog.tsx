@@ -1,23 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { assignMatch, updateMatchPlayers } from "@/lib/store";
 import {
   busyPlayers,
   courtsOf,
   getStats,
   type Recommendation,
 } from "@/lib/match";
-import { assignInput, gameUpdateInput } from "@/lib/schemas";
 import type { Game, Session, Team } from "@/lib/types";
 import { Dialog } from "./Dialog";
 import {
+  PlayerSelectField,
+  TargetControls,
+  initialSlots,
+  submitAssign,
+} from "./AssignDialogFields";
+import {
   btn,
-  cx,
   errorNotice,
-  field,
-  fieldInput,
-  fieldLabel,
   fieldRow,
   modalActions,
   notice,
@@ -31,24 +31,85 @@ export interface AssignDialogConfig {
   editingGame?: Game;
 }
 
-function initialSlots(
-  session: Session,
-  config: AssignDialogConfig,
-): [string, string, string, string] {
-  if (config.editingGame?.teams) {
-    const [t1, t2] = config.editingGame.teams;
-    return [t1[0], t1[1], t2[0], t2[1]];
-  }
-  if (config.editingGame && config.editingGame.playerIds.length === 4) {
-    const [a, b, c, d] = config.editingGame.playerIds;
-    return [a, b, c, d];
-  }
-  if (config.prefill) {
-    const [t1, t2] = config.prefill;
-    return [t1[0], t1[1], t2[0], t2[1]];
-  }
-  const ids = session.players.slice(0, 4).map((p) => p.id);
-  return [ids[0] ?? "", ids[1] ?? "", ids[2] ?? "", ids[3] ?? ""];
+function TeamInputs({
+  slots,
+  session,
+  busyMap,
+  countMap,
+  requiresFreePlayers,
+  onSetSlot,
+}: {
+  slots: [string, string, string, string];
+  session: Session;
+  busyMap: Map<string, number>;
+  countMap: Map<string, number>;
+  requiresFreePlayers: boolean;
+  onSetSlot: (index: 0 | 1 | 2 | 3, val: string) => void;
+}) {
+  return (
+    <>
+      <div className="mb-2 text-[11px] font-extrabold text-[#527a9e]">Team A</div>
+      <div className={fieldRow}>
+        <PlayerSelectField
+          id="assign-player-1"
+          label="Player 1"
+          value={slots[0]}
+          slots={slots}
+          index={0}
+          session={session}
+          busyMap={busyMap}
+          countMap={countMap}
+          requiresFreePlayers={requiresFreePlayers}
+          onChange={(val) => onSetSlot(0, val)}
+        />
+        <PlayerSelectField
+          id="assign-player-2"
+          label="Player 2"
+          value={slots[1]}
+          slots={slots}
+          index={1}
+          session={session}
+          busyMap={busyMap}
+          countMap={countMap}
+          requiresFreePlayers={requiresFreePlayers}
+          onChange={(val) => onSetSlot(1, val)}
+        />
+      </div>
+
+      <div className="mt-3 mb-2 text-[11px] font-extrabold text-[#527a9e]">Team B</div>
+      <div className={fieldRow}>
+        <PlayerSelectField
+          id="assign-player-3"
+          label="Player 3"
+          value={slots[2]}
+          slots={slots}
+          index={2}
+          session={session}
+          busyMap={busyMap}
+          countMap={countMap}
+          requiresFreePlayers={requiresFreePlayers}
+          onChange={(val) => onSetSlot(2, val)}
+        />
+        <PlayerSelectField
+          id="assign-player-4"
+          label="Player 4"
+          value={slots[3]}
+          slots={slots}
+          index={3}
+          session={session}
+          busyMap={busyMap}
+          countMap={countMap}
+          requiresFreePlayers={requiresFreePlayers}
+          onChange={(val) => onSetSlot(3, val)}
+        />
+      </div>
+    </>
+  );
+}
+
+function getSubmitBtnText(isEditing: boolean, targetType: "court" | "queue", courtNumber: number): string {
+  if (isEditing) return "Save changes";
+  return targetType === "court" ? `Assign to Court ${courtNumber}` : "Add to queue";
 }
 
 export function AssignDialog({
@@ -83,10 +144,9 @@ export function AssignDialog({
   const stats = getStats(session);
   const countMap = new Map(stats.map((s) => [s.player.id, s.count]));
 
-  const requiresFreePlayers =
-    isEditing
-      ? config.editingGame?.status === "ON_COURT"
-      : targetType === "court";
+  const requiresFreePlayers = isEditing
+    ? config.editingGame?.status === "ON_COURT"
+    : targetType === "court";
 
   function applyRecommendation() {
     if (!rec) return;
@@ -114,43 +174,16 @@ export function AssignDialog({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const teams: [Team, Team] = [
-      [slots[0], slots[1]],
-      [slots[2], slots[3]],
-    ];
-
     setBusy(true);
     try {
-      if (config.editingGame) {
-        const parsed = gameUpdateInput.safeParse({ teams });
-        if (!parsed.success) {
-          setError(parsed.error.issues[0]?.message ?? "Pick 4 different players");
-          setBusy(false);
-          return;
-        }
-        await updateMatchPlayers(session.id, config.editingGame.id, parsed.data.teams);
-        onSaved("Match players updated");
-      } else {
-        const payload = {
-          target:
-            targetType === "court"
-              ? ({ type: "court" as const, courtNumber })
-              : ({ type: "queue" as const }),
-          teams,
-        };
-        const parsed = assignInput.safeParse(payload);
-        if (!parsed.success) {
-          setError(parsed.error.issues[0]?.message ?? "Pick 4 different players");
-          setBusy(false);
-          return;
-        }
-        await assignMatch(session.id, parsed.data);
-        onSaved(
-          targetType === "court"
-            ? `Match assigned to Court ${courtNumber} — 4 players ticked & locked`
-            : "Match added to queue — 4 players ticked & flagged Queued",
-        );
-      }
+      const msg = await submitAssign({
+        sessionId: session.id,
+        editingGameId: config.editingGame?.id,
+        targetType,
+        courtNumber,
+        slots,
+      });
+      onSaved(msg);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save match");
@@ -159,47 +192,15 @@ export function AssignDialog({
     }
   }
 
-  function renderSelect(index: 0 | 1 | 2 | 3, label: string) {
-    const current = slots[index];
-    const otherChosen = new Set(slots.filter((_, i) => i !== index));
-
-    return (
-      <label className={field}>
-        <span className={fieldLabel}>{label}</span>
-        <select
-          id={`assign-player-${index + 1}`}
-          className={fieldInput}
-          value={current}
-          onChange={(e) => setSlot(index, e.target.value)}
-          required
-        >
-          <option value="">Select player…</option>
-          {session.players.map((p) => {
-            if (otherChosen.has(p.id) && p.id !== current) return null;
-            const onCourt = busyMap.get(p.id);
-            const played = countMap.get(p.id) ?? 0;
-            const disabled = Boolean(onCourt && requiresFreePlayers && p.id !== current);
-            return (
-              <option key={p.id} value={p.id} disabled={disabled}>
-                {p.name} ({played} played
-                {onCourt ? ` · currently on court ${onCourt}` : ""})
-              </option>
-            );
-          })}
-        </select>
-      </label>
-    );
-  }
+  const dialogTitle = isEditing
+    ? "Edit match players"
+    : targetType === "court"
+      ? "Assign match to court"
+      : "Add match to queue";
 
   return (
     <Dialog
-      title={
-        isEditing
-          ? "Edit match players"
-          : targetType === "court"
-            ? "Assign match to court"
-            : "Add match to queue"
-      }
+      title={dialogTitle}
       description={
         isEditing
           ? "Update the 4 players and teams for this match."
@@ -208,128 +209,46 @@ export function AssignDialog({
       onClose={onClose}
     >
       <form onSubmit={submit}>
-        {!isEditing && (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex gap-1.5">
-              <button
-                type="button"
-                className={btn(targetType === "court" ? "primary" : "light", "sm")}
-                onClick={() => setTargetType("court")}
-              >
-                Assign to court
-              </button>
-              <button
-                type="button"
-                className={btn(targetType === "queue" ? "primary" : "light", "sm")}
-                onClick={() => setTargetType("queue")}
-              >
-                Add to queue
-              </button>
-            </div>
-            {rec && (
-              <button
-                type="button"
-                className={btn("light", "sm")}
-                onClick={applyRecommendation}
-              >
-                Use recommendation
-              </button>
-            )}
-          </div>
-        )}
+        <TargetControls
+          isEditing={isEditing}
+          targetType={targetType}
+          courtNumber={courtNumber}
+          courts={courts}
+          hasRec={Boolean(rec)}
+          onTargetChange={setTargetType}
+          onCourtChange={setCourtNumber}
+          onApplyRec={applyRecommendation}
+        />
 
-        {!isEditing && targetType === "court" && (
-          <label className={field}>
-            <span className={fieldLabel}>Court</span>
-            <select
-              id="assign-court-select"
-              className={fieldInput}
-              value={courtNumber}
-              onChange={(e) => setCourtNumber(Number(e.target.value))}
-            >
-              {courts.map((c) => (
-                <option
-                  key={c.courtNumber}
-                  value={c.courtNumber}
-                  disabled={Boolean(c.game)}
-                >
-                  Court {c.courtNumber}
-                  {c.game ? " (Occupied)" : " (Open)"}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <TeamInputs
+          slots={slots}
+          session={session}
+          busyMap={busyMap}
+          countMap={countMap}
+          requiresFreePlayers={requiresFreePlayers}
+          onSetSlot={setSlot}
+        />
 
-        {isEditing && rec && (
-          <div className="mb-3 flex justify-end">
-            <button
-              type="button"
-              className={btn("light", "sm")}
-              onClick={applyRecommendation}
-            >
-              Use recommendation
-            </button>
-          </div>
-        )}
-
-        <div className="mb-2 rounded-2xl border border-[#e1edf7] bg-[#f8fcff] p-3">
-          <div className="mb-2 text-[10px] font-extrabold tracking-[1.4px] text-[#3c78aa] uppercase">
-            Team A
-          </div>
-          <div className={fieldRow}>
-            {renderSelect(0, "Player A1")}
-            {renderSelect(1, "Player A2")}
-          </div>
-        </div>
-
-        <div className="mb-3 rounded-2xl border border-[#e1edf7] bg-[#f8fcff] p-3">
-          <div className="mb-2 text-[10px] font-extrabold tracking-[1.4px] text-[#3c78aa] uppercase">
-            Team B
-          </div>
-          <div className={fieldRow}>
-            {renderSelect(2, "Player B1")}
-            {renderSelect(3, "Player B2")}
-          </div>
-        </div>
-
-        {busySelected.length > 0 && (
-          <div className={cx(notice, "mb-1 text-warn")}>
-            Note: {busySelected.join(", ")}{" "}
-            {requiresFreePlayers
-              ? "cannot start on a second court while still playing."
-              : "is currently on court and will play this queued match next."}
+        {targetType === "queue" && busySelected.length > 0 && (
+          <div className={notice}>
+            Note: {busySelected.join(", ")} will finish on court before this queued match can start.
           </div>
         )}
 
         {error && <div className={errorNotice}>{error}</div>}
 
         <div className={modalActions}>
-          <button
-            type="button"
-            className={btn("light")}
-            onClick={onClose}
-            disabled={busy}
-          >
+          <button type="button" className={btn("light")} onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button
-            type="submit"
-            id="confirm-assign"
-            className={btn("primary")}
-            disabled={busy}
-          >
+          <button type="submit" className={btn("primary")} disabled={busy}>
             {busy ? (
               <>
-                <span className={cx(spinner, "mr-1.5")} />
-                Saving…
+                <span className={spinner} />
+                <span className="ml-1.5">Saving…</span>
               </>
-            ) : isEditing ? (
-              "Save match"
-            ) : targetType === "court" ? (
-              `Start on Court ${courtNumber}`
             ) : (
-              "Add to queue"
+              getSubmitBtnText(isEditing, targetType, courtNumber)
             )}
           </button>
         </div>
@@ -337,4 +256,3 @@ export function AssignDialog({
     </Dialog>
   );
 }
-

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { changePassword } from "@/lib/auth";
+import { changePassword } from "@/features/auth";
 import { changePasswordInput } from "@/lib/schemas";
 import { Dialog } from "./Dialog";
 import {

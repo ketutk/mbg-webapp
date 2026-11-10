@@ -59,6 +59,32 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   };
 }
 
+async function handleFailedLogin(
+  user: { id: string; failedAttempts: number; lockedUntil: Date | null } | null,
+  now: Date,
+): Promise<never> {
+  if (user) {
+    const nextAttempts =
+      user.lockedUntil && user.lockedUntil <= now ? 1 : user.failedAttempts + 1;
+    const shouldLock = nextAttempts >= MAX_FAILED_ATTEMPTS;
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedAttempts: nextAttempts,
+        lockedUntil: shouldLock ? new Date(now.getTime() + LOCK_WINDOW_MS) : null,
+      },
+    });
+    if (shouldLock) {
+      throw new HttpError(
+        429,
+        "TOO_MANY_ATTEMPTS",
+        "Too many failed login attempts. Account locked for 15 minutes.",
+      );
+    }
+  }
+  throw new HttpError(401, "UNAUTHENTICATED", "Invalid username or password");
+}
+
 export async function loginWithPassword(
   username: string,
   password: string,
@@ -79,26 +105,11 @@ export async function loginWithPassword(
     user && user.deletedAt === null ? user.passwordHash : DUMMY_HASH,
   );
 
-  if (!user || user.deletedAt !== null || !valid) {
-    if (user && user.deletedAt === null) {
-      const nextAttempts =
-        user.lockedUntil && user.lockedUntil <= now ? 1 : user.failedAttempts + 1;
-      const shouldLock = nextAttempts >= MAX_FAILED_ATTEMPTS;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          failedAttempts: nextAttempts,
-          lockedUntil: shouldLock ? new Date(now.getTime() + LOCK_WINDOW_MS) : null,
-        },
-      });
-      if (shouldLock) {
-        throw new HttpError(
-          429,
-          "TOO_MANY_ATTEMPTS",
-          "Too many failed login attempts. Account locked for 15 minutes.",
-        );
-      }
-    }
+  const activeUser = user && user.deletedAt === null ? user : null;
+  if (!activeUser || !valid) {
+    await handleFailedLogin(activeUser, now);
+  }
+  if (!user) {
     throw new HttpError(401, "UNAUTHENTICATED", "Invalid username or password");
   }
 

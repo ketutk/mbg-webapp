@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { login } from "@/lib/auth";
+import { login } from "@/features/auth";
 import { loginSchema } from "@/lib/schemas";
 import { Dialog } from "./Dialog";
 import {

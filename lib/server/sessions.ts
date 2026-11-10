@@ -45,6 +45,40 @@ function dedupeNames(names: string[]): { name: string; nameKey: string }[] {
   return out;
 }
 
+function buildDateRangeFilter(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
+  const fromValid = from && DATE_RE.test(from) ? from : undefined;
+  const toValid = to && DATE_RE.test(to) ? to : undefined;
+  if (!fromValid && !toValid) return undefined;
+  return {
+    ...(fromValid ? { gte: fromDateStr(fromValid) } : {}),
+    ...(toValid ? { lte: fromDateStr(toValid) } : {}),
+  };
+}
+
+function resolveStatusFilter(status: string | undefined, isOrganiser: boolean) {
+  if (!isOrganiser) return "OPEN" as const;
+  if (status === "OPEN" || status === "CLOSED") return status;
+  return undefined;
+}
+
+function buildSessionFilters(params: SessionsFilterParams, isOrganiser: boolean) {
+  const dateFilter = buildDateRangeFilter(params.from, params.to);
+  const qFilter = params.q?.trim() || undefined;
+  const statusFilter = resolveStatusFilter(params.status, isOrganiser);
+
+  const baseWhere: Prisma.SessionWhereInput = {
+    ...(dateFilter ? { date: dateFilter } : {}),
+    ...(qFilter ? { name: { contains: qFilter, mode: "insensitive" } } : {}),
+  };
+
+  const filteredWhere: Prisma.SessionWhereInput = {
+    ...baseWhere,
+    ...(statusFilter ? { status: statusFilter } : {}),
+  };
+
+  return { baseWhere, filteredWhere };
+}
+
 export async function listSessions(
   params: SessionsFilterParams = {},
   user: AuthUser | null = null,
@@ -53,39 +87,7 @@ export async function listSessions(
   const pageSize = Math.min(100, Math.max(5, Math.trunc(params.pageSize || 10)));
   const requestedPage = Math.max(1, Math.trunc(params.page || 1));
 
-  const fromStr = params.from && DATE_RE.test(params.from) ? params.from : undefined;
-  const toStr = params.to && DATE_RE.test(params.to) ? params.to : undefined;
-  const qFilter = params.q?.trim() ? params.q.trim() : undefined;
-
-  const statusFilter = !isOrganiser
-    ? ("OPEN" as const)
-    : params.status === "OPEN" || params.status === "CLOSED"
-      ? params.status
-      : undefined;
-
-  const baseWhere: Prisma.SessionWhereInput = {
-    ...(fromStr || toStr
-      ? {
-          date: {
-            ...(fromStr ? { gte: fromDateStr(fromStr) } : {}),
-            ...(toStr ? { lte: fromDateStr(toStr) } : {}),
-          },
-        }
-      : {}),
-    ...(qFilter
-      ? {
-          name: {
-            contains: qFilter,
-            mode: "insensitive",
-          },
-        }
-      : {}),
-  };
-
-  const filteredWhere: Prisma.SessionWhereInput = {
-    ...baseWhere,
-    ...(statusFilter ? { status: statusFilter } : {}),
-  };
+  const { baseWhere, filteredWhere } = buildSessionFilters(params, isOrganiser);
 
   const [totalSessions, statusCounts] = await Promise.all([
     prisma.session.count({ where: filteredWhere }),
