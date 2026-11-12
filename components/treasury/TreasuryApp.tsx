@@ -45,7 +45,6 @@ export default function TreasuryApp() {
           isSuperadmin={isSuperadmin}
           onAdd={(type) => setDialogMode({ initialType: type })}
           onEdit={(entry) => setDialogMode({ editingEntry: entry })}
-          onToast={showToast}
         />
       )}
 

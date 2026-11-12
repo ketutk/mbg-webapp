@@ -7,6 +7,7 @@ import {
   setGameLocked,
   setPlayed,
 } from "@/lib/store";
+import { useToast } from "@/lib/stores/ui-store";
 import { fairnessGap, getStats } from "@/lib/match";
 import { initials } from "@/lib/initials";
 import type { Session } from "@/lib/types";
@@ -38,13 +39,12 @@ export function PlayerGrid({
   session,
   nextUp,
   isSuperadmin,
-  onToast,
 }: {
   session: Session;
   nextUp: Set<string>;
   isSuperadmin?: boolean;
-  onToast?: (msg: string) => void;
 }) {
+  const showToast = useToast();
   const [pendingTicks, setPendingTicks] = useState<Set<string>>(() => new Set());
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export function PlayerGrid({
     try {
       await setPlayed(session.id, gameId, playerId, checked);
     } catch (err) {
-      onToast?.(err instanceof Error ? err.message : "Could not update tick");
+      showToast(err instanceof Error ? err.message : "Could not update tick");
     } finally {
       setPendingTicks((prev) => {
         const next = new Set(prev);
@@ -79,11 +79,11 @@ export function PlayerGrid({
     setLockingId(gameId);
     try {
       await setGameLocked(session.id, gameId, locked);
-      onToast?.(
+      showToast(
         locked ? `Game ${n} locked` : `Game ${n} unlocked — you can edit ticks now`,
       );
     } catch (err) {
-      onToast?.(err instanceof Error ? err.message : "Could not update lock");
+      showToast(err instanceof Error ? err.message : "Could not update lock");
     } finally {
       setLockingId(null);
     }
@@ -96,9 +96,9 @@ export function PlayerGrid({
     try {
       await removeGame(session.id, gameId);
       setConfirmRemoveGame(null);
-      onToast?.(`Game ${n} removed`);
+      showToast(`Game ${n} removed`);
     } catch (err) {
-      onToast?.(err instanceof Error ? err.message : "Could not remove game");
+      showToast(err instanceof Error ? err.message : "Could not remove game");
     } finally {
       setRemovingId(null);
     }
@@ -109,9 +109,9 @@ export function PlayerGrid({
     try {
       await clearGames(session.id);
       setConfirmClearAll(false);
-      onToast?.("All games cleared");
+      showToast("All games cleared");
     } catch (err) {
-      onToast?.(err instanceof Error ? err.message : "Could not clear games");
+      showToast(err instanceof Error ? err.message : "Could not clear games");
     } finally {
       setClearing(false);
     }

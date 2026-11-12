@@ -12,6 +12,7 @@ import {
   startQueuedMatch,
   updateSession,
 } from "@/lib/store";
+import { useToast } from "@/lib/stores/ui-store";
 import type {
   AuthUser,
   Game,
@@ -32,12 +33,11 @@ import { SessionHeaderBar } from "./SessionHeaderBar";
 export function SessionView({
   session,
   user,
-  onToast,
 }: {
   session: Session;
   user: AuthUser;
-  onToast: (msg: string) => void;
 }) {
+  const showToast = useToast();
   const [seed, setSeed] = useState(0);
   const [editingRoster, setEditingRoster] = useState(false);
   const [editingSettings, setEditingSettings] = useState(false);
@@ -67,13 +67,13 @@ export function SessionView({
     setTogglingStatus(true);
     try {
       await updateSession(session.id, { status: nextStatus });
-      onToast(
+      showToast(
         nextStatus === "OPEN"
           ? "Session opened — now visible to visitors"
           : "Session closed — now restricted to organisers",
       );
     } catch (err) {
-      onToast(
+      showToast(
         err instanceof Error ? err.message : "Could not update session status",
       );
     } finally {
@@ -85,9 +85,9 @@ export function SessionView({
     setFinishingGameId(game.id);
     try {
       await finishMatch(session.id, game.id);
-      onToast(`Court ${game.courtNumber ?? ""} finished`);
+      showToast(`Court ${game.courtNumber ?? ""} finished`);
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not finish match");
+      showToast(err instanceof Error ? err.message : "Could not finish match");
     } finally {
       setFinishingGameId(null);
     }
@@ -99,9 +99,9 @@ export function SessionView({
     setPromotingCourt(courtNumber);
     try {
       await startQueuedMatch(session.id, first.id, courtNumber);
-      onToast(`Moved queued match onto Court ${courtNumber}`);
+      showToast(`Moved queued match onto Court ${courtNumber}`);
     } catch (err) {
-      onToast(
+      showToast(
         err instanceof Error ? err.message : "Could not start queued match",
       );
     } finally {
@@ -119,7 +119,7 @@ export function SessionView({
     try {
       await reorderQueue(session.id, ids);
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not reorder queue");
+      showToast(err instanceof Error ? err.message : "Could not reorder queue");
     } finally {
       setMovingGameId(null);
     }
@@ -131,9 +131,9 @@ export function SessionView({
     try {
       await removeGame(session.id, confirmRemoveQueued.id);
       setConfirmRemoveQueued(null);
-      onToast("Queued match removed");
+      showToast("Queued match removed");
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not remove match");
+      showToast(err instanceof Error ? err.message : "Could not remove match");
     } finally {
       setRemovingGameId(null);
     }
@@ -144,9 +144,9 @@ export function SessionView({
     try {
       await deleteSession(session.id);
       setConfirmDeleteSession(false);
-      onToast("Session deleted");
+      showToast("Session deleted");
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not delete session");
+      showToast(err instanceof Error ? err.message : "Could not delete session");
     } finally {
       setDeletingSession(false);
     }
@@ -214,7 +214,7 @@ export function SessionView({
             rec={rec}
             onShuffle={() => {
               setSeed((s) => s + 1);
-              onToast("Shuffled — only players tied on games and rest can change");
+              showToast("Shuffled — only players tied on games and rest can change");
             }}
             onAssignRecommended={(mode: "court" | "queue", teams: [Team, Team]) => {
               setAssignConfig({ mode, prefill: teams });
@@ -226,7 +226,6 @@ export function SessionView({
             session={session}
             nextUp={nextUp}
             isSuperadmin={isSuperadmin}
-            onToast={onToast}
           />
         </div>
       </div>
@@ -235,14 +234,14 @@ export function SessionView({
         <RosterDialog
           session={session}
           onClose={() => setEditingRoster(false)}
-          onSaved={onToast}
+          onSaved={showToast}
         />
       )}
       {editingSettings && isSuperadmin && (
         <SessionSettingsDialog
           session={session}
           onClose={() => setEditingSettings(false)}
-          onSaved={onToast}
+          onSaved={showToast}
         />
       )}
       {showHistory && (
@@ -256,7 +255,7 @@ export function SessionView({
           onClose={() => setAssignConfig(null)}
           onSaved={(msg) => {
             setSeed(0);
-            onToast(msg);
+            showToast(msg);
           }}
         />
       )}

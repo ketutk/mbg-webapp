@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { deleteAdmin, useAdmins } from "@/lib/store";
+import { useToast } from "@/lib/stores/ui-store";
 import type { AdminUser } from "@/lib/types";
 import {
   btn,
@@ -21,13 +22,12 @@ export function AdminsContent({
   currentUserId,
   onAdd,
   onReset,
-  onToast,
 }: {
   currentUserId: string;
   onAdd: () => void;
   onReset: (admin: AdminUser) => void;
-  onToast: (msg: string) => void;
 }) {
+  const showToast = useToast();
   const { data: admins, loading } = useAdmins();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmAdmin, setConfirmAdmin] = useState<AdminUser | null>(null);
@@ -43,9 +43,9 @@ export function AdminsContent({
       await deleteAdmin(confirmAdmin.id);
       const deletedName = confirmAdmin.username;
       setConfirmAdmin(null);
-      onToast(`Admin “${deletedName}” deleted`);
+      showToast(`Admin “${deletedName}” deleted`);
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not delete admin");
+      showToast(err instanceof Error ? err.message : "Could not delete admin");
     } finally {
       setDeletingId(null);
     }

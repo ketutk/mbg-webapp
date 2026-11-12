@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { formatIDR } from "@/lib/format";
 import { removeTreasuryEntry, useTreasury } from "@/lib/store";
+import { useToast } from "@/lib/stores/ui-store";
 import type { EntryType, TreasuryEntry } from "@/lib/types";
 import { shimmerCard } from "@/lib/ui";
 import { MonthlyCashflowCard } from "./MonthlyCashflowCard";
@@ -16,13 +17,12 @@ export function TreasuryContent({
   isSuperadmin,
   onAdd,
   onEdit,
-  onToast,
 }: {
   isSuperadmin: boolean;
   onAdd: (type: EntryType) => void;
   onEdit: (entry: TreasuryEntry) => void;
-  onToast: (msg: string) => void;
 }) {
+  const showToast = useToast();
   const {
     preset,
     setPreset,
@@ -63,9 +63,9 @@ export function TreasuryContent({
     try {
       await removeTreasuryEntry(confirmEntry.id);
       setConfirmEntry(null);
-      onToast("Treasury entry deleted");
+      showToast("Treasury entry deleted");
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not delete entry");
+      showToast(err instanceof Error ? err.message : "Could not delete entry");
     } finally {
       setDeletingId(null);
     }

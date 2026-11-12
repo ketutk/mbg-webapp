@@ -8,12 +8,10 @@ export function InternalMatchesWorkspace({
   user,
   currentSessionId,
   onSelectSession,
-  onToast,
 }: {
   user: AuthUser;
   currentSessionId: string | null;
   onSelectSession: (id: string) => void;
-  onToast: (msg: string) => void;
 }) {
   return (
     <>
@@ -23,7 +21,6 @@ export function InternalMatchesWorkspace({
             key={currentSessionId}
             sessionId={currentSessionId}
             user={user}
-            onToast={onToast}
           />
         </div>
       )}
@@ -32,7 +29,6 @@ export function InternalMatchesWorkspace({
         user={user}
         currentSessionId={currentSessionId}
         onSelectSession={onSelectSession}
-        onToast={onToast}
       />
     </>
   );

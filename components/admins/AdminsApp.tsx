@@ -43,7 +43,6 @@ export default function AdminsApp() {
           currentUserId={user.id}
           onAdd={() => setCreating(true)}
           onReset={(admin) => setResetTarget(admin)}
-          onToast={showToast}
         />
       )}
 

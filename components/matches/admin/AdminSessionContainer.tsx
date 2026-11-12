@@ -8,11 +8,9 @@ import { SessionView } from "./SessionView";
 export function AdminSessionContainer({
   sessionId,
   user,
-  onToast,
 }: {
   sessionId: string;
   user: AuthUser;
-  onToast: (msg: string) => void;
 }) {
   const { data: session, error, loading } = useSessionDetail(sessionId);
 
@@ -43,5 +41,5 @@ export function AdminSessionContainer({
     );
   }
 
-  return <SessionView session={session} user={user} onToast={onToast} />;
+  return <SessionView session={session} user={user} />;
 }

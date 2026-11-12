@@ -10,6 +10,7 @@ import {
   updateSession,
   useSessionsList,
 } from "@/lib/store";
+import { useToast } from "@/lib/stores/ui-store";
 import type { AuthUser, SessionListItem, SessionStatus } from "@/lib/types";
 import {
   card,
@@ -29,13 +30,12 @@ export function SessionsDirectory({
   user,
   currentSessionId,
   onSelectSession,
-  onToast,
 }: {
   user: AuthUser;
   currentSessionId: string | null;
   onSelectSession: (id: string) => void;
-  onToast: (msg: string) => void;
 }) {
+  const showToast = useToast();
   const isSuperadmin = user.role === "SUPERADMIN";
 
   const {
@@ -76,11 +76,11 @@ export function SessionsDirectory({
     setTogglingId(item.id);
     try {
       await updateSession(item.id, { status: nextStatus });
-      onToast(
+      showToast(
         `Session “${item.name}” marked as ${nextStatus === "OPEN" ? "Open" : "Closed"}`,
       );
     } catch (err) {
-      onToast(
+      showToast(
         err instanceof Error ? err.message : "Could not update session status",
       );
     } finally {
@@ -95,9 +95,9 @@ export function SessionsDirectory({
       const targetName = deletingSession.name;
       await deleteSession(deletingSession.id);
       setDeletingSession(null);
-      onToast(`Session “${targetName}” deleted`);
+      showToast(`Session “${targetName}” deleted`);
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not delete session");
+      showToast(err instanceof Error ? err.message : "Could not delete session");
     } finally {
       setDeletingBusy(false);
     }

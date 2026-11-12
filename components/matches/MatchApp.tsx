@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/lib/auth";
 import { selectSession, useCurrentSessionId, useHydrated } from "@/lib/store";
-import { useToast, useUiStore } from "@/lib/stores/ui-store";
+import { useUiStore } from "@/lib/stores/ui-store";
 import { shimmerCard } from "@/lib/ui";
 import { ExternalMatchesView } from "./ExternalMatchesView";
 import { InternalMatchesWorkspace } from "./InternalMatchesWorkspace";
@@ -13,7 +13,6 @@ export default function MatchApp() {
   const currentId = useCurrentSessionId();
 
   const openLogin = useUiStore((s) => s.openLogin);
-  const showToast = useToast();
 
   function handleSelectSession(id: string) {
     selectSession(id);
@@ -27,7 +26,6 @@ export default function MatchApp() {
       user={user}
       currentSessionId={currentId}
       onSelectSession={handleSelectSession}
-      onToast={showToast}
     />
   ) : (
     <ExternalMatchesView
