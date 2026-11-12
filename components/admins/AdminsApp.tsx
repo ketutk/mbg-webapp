@@ -8,9 +8,7 @@ import { useToast } from "@/lib/stores/ui-store";
 import { deleteAdmin, useAdmins, useHydrated } from "@/lib/store";
 import type { AdminUser } from "@/lib/types";
 import { AdminDialog } from "./AdminDialog";
-import { AppHeader } from "@/components/layout/AppHeader";
 import { ConfirmDialog } from "@/components/ui/Dialog";
-import { Toast } from "@/components/ui/Toast";
 import {
   btn,
   card,
@@ -37,36 +35,32 @@ export default function AdminsApp() {
   const isSuperadmin = user?.role === "SUPERADMIN";
 
   return (
-    <div className="mx-auto max-w-[1190px] px-[30px] pb-14 max-[860px]:px-3.5 max-[860px]:pb-10">
-      <AppHeader active="admins" user={user} onToast={showToast} />
-
-      <main>
-        {!hydrated || authLoading ? (
-          <div className={shimmerCard} aria-busy="true" />
-        ) : !isSuperadmin ? (
-          <section
-            className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}
-          >
-            <div className={eyebrow}>Restricted</div>
-            <h1 className="mt-2 font-display text-2xl font-extrabold text-[#183e6b]">
-              Not allowed
-            </h1>
-            <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
-              Only superadmins can view or manage organiser accounts.
-            </p>
-            <Link href="/" className={btn("primary")}>
-              Back to matches
-            </Link>
-          </section>
-        ) : (
-          <AdminsContent
-            currentUserId={user.id}
-            onAdd={() => setCreating(true)}
-            onReset={(admin) => setResetTarget(admin)}
-            onToast={showToast}
-          />
-        )}
-      </main>
+    <>
+      {!hydrated || authLoading ? (
+        <div className={shimmerCard} aria-busy="true" />
+      ) : !isSuperadmin ? (
+        <section
+          className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}
+        >
+          <div className={eyebrow}>Restricted</div>
+          <h1 className="mt-2 font-display text-2xl font-extrabold text-[#183e6b]">
+            Not allowed
+          </h1>
+          <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
+            Only superadmins can view or manage organiser accounts.
+          </p>
+          <Link href="/" className={btn("primary")}>
+            Back to matches
+          </Link>
+        </section>
+      ) : (
+        <AdminsContent
+          currentUserId={user.id}
+          onAdd={() => setCreating(true)}
+          onReset={(admin) => setResetTarget(admin)}
+          onToast={showToast}
+        />
+      )}
 
       {creating && (
         <AdminDialog
@@ -81,9 +75,7 @@ export default function AdminsApp() {
           onSaved={showToast}
         />
       )}
-
-      <Toast />
-    </div>
+    </>
   );
 }
 

@@ -3,48 +3,52 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useIsFetching } from "@tanstack/react-query";
-import { logout } from "@/lib/auth";
-import type { AuthUser } from "@/lib/types";
-import { LoginDialog } from "@/components/auth/LoginDialog";
-import { PasswordDialog } from "@/components/auth/PasswordDialog";
+import { logout, useAuth } from "@/lib/auth";
+import { useToast, useUiStore } from "@/lib/stores/ui-store";
 import { initials } from "@/lib/initials";
 import { avatar, btn, cx, linkBtn, pill, spinner } from "@/lib/ui";
 
-export function AppHeader({
-  active,
-  user,
-  onNewSession,
-  onToast,
-}: {
-  active: "matches" | "treasury" | "admins";
-  user: AuthUser | null;
-  onNewSession?: () => void;
-  onToast: (msg: string) => void;
-}) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [loggingIn, setLoggingIn] = useState(false);
-  const [changingPass, setChangingPass] = useState(false);
+export function AppHeader() {
+  const { user } = useAuth();
+  const pathname = usePathname();
+  const active: "matches" | "treasury" | "admins" =
+    pathname === "/treasury"
+      ? "treasury"
+      : pathname === "/admins"
+        ? "admins"
+        : "matches";
+
+  const drawerOpen = useUiStore((s) => s.drawerOpen);
+  const openDrawer = useUiStore((s) => s.openDrawer);
+  const closeDrawer = useUiStore((s) => s.closeDrawer);
+  const openLogin = useUiStore((s) => s.openLogin);
+  const openPassword = useUiStore((s) => s.openPassword);
+  const openNewSession = useUiStore((s) => s.openNewSession);
+  const showToast = useToast();
+
   const [loggingOut, setLoggingOut] = useState(false);
   const isFetching = useIsFetching();
 
   const isSuperadmin = user?.role === "SUPERADMIN";
+  const showNewSession = isSuperadmin && active === "matches";
 
   useEffect(() => {
     if (!drawerOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
+      if (e.key === "Escape") closeDrawer();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [drawerOpen]);
+  }, [drawerOpen, closeDrawer]);
 
   async function handleLogout() {
     setLoggingOut(true);
     try {
       await logout();
-      setDrawerOpen(false);
-      onToast("Signed out");
+      closeDrawer();
+      showToast("Signed out");
     } finally {
       setLoggingOut(false);
     }
@@ -137,16 +141,16 @@ export function AppHeader({
 
               <button
                 className={linkBtn}
-                onClick={() => setChangingPass(true)}
+                onClick={openPassword}
               >
                 Password
               </button>
 
-              {isSuperadmin && onNewSession && (
+              {showNewSession && (
                 <button
                   id="new-session"
                   className={btn("primary", "sm")}
-                  onClick={onNewSession}
+                  onClick={openNewSession}
                 >
                   ＋ New session
                 </button>
@@ -178,7 +182,7 @@ export function AppHeader({
               <button
                 id="admin-login-btn"
                 className={btn("light", "sm")}
-                onClick={() => setLoggingIn(true)}
+                onClick={openLogin}
               >
                 Admin login
               </button>
@@ -190,10 +194,10 @@ export function AppHeader({
         <div className="hidden items-center gap-2 max-[860px]:flex">
           {user ? (
             <>
-              {isSuperadmin && onNewSession && (
+              {showNewSession && (
                 <button
                   className={btn("primary", "sm")}
-                  onClick={onNewSession}
+                  onClick={openNewSession}
                 >
                   ＋ New
                 </button>
@@ -207,7 +211,7 @@ export function AppHeader({
                 )}
                 aria-label="Open navigation menu"
                 aria-expanded={drawerOpen}
-                onClick={() => setDrawerOpen(true)}
+                onClick={openDrawer}
               >
                 <span className="text-sm leading-none">☰</span>
                 <span>Menu</span>
@@ -222,7 +226,7 @@ export function AppHeader({
               )}
               <button
                 className={btn("light", "sm")}
-                onClick={() => setLoggingIn(true)}
+                onClick={openLogin}
               >
                 Admin login
               </button>
@@ -239,7 +243,7 @@ export function AppHeader({
           aria-modal="true"
           aria-label="Navigation menu"
           onMouseDown={(e) =>
-            e.target === e.currentTarget && setDrawerOpen(false)
+            e.target === e.currentTarget && closeDrawer()
           }
         >
           <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(300px,84vw)] flex-col justify-between border-l border-[#e3eff9] bg-white p-5 shadow-[0_24px_80px_#123b6133]">
@@ -264,7 +268,7 @@ export function AppHeader({
                   type="button"
                   className="grid size-8 place-items-center rounded-xl border border-[#deedf9] bg-[#f2f8fe] text-sm font-extrabold text-[#3c78aa]"
                   aria-label="Close navigation menu"
-                  onClick={() => setDrawerOpen(false)}
+                  onClick={closeDrawer}
                 >
                   ✕
                 </button>
@@ -295,7 +299,7 @@ export function AppHeader({
                 </div>
                 <Link
                   href="/"
-                  onClick={() => setDrawerOpen(false)}
+                  onClick={closeDrawer}
                   className={cx(
                     btn(active === "matches" ? "primary" : "light", "md"),
                     "w-full text-left",
@@ -305,7 +309,7 @@ export function AppHeader({
                 </Link>
                 <Link
                   href="/treasury"
-                  onClick={() => setDrawerOpen(false)}
+                  onClick={closeDrawer}
                   className={cx(
                     btn(active === "treasury" ? "primary" : "light", "md"),
                     "w-full text-left",
@@ -316,7 +320,7 @@ export function AppHeader({
                 {isSuperadmin && (
                   <Link
                     href="/admins"
-                    onClick={() => setDrawerOpen(false)}
+                    onClick={closeDrawer}
                     className={cx(
                       btn(active === "admins" ? "primary" : "light", "md"),
                       "w-full text-left",
@@ -332,13 +336,13 @@ export function AppHeader({
                   <div className="px-1 pb-1 text-[10px] font-extrabold tracking-[1.4px] text-[#7790a8] uppercase">
                     Actions
                   </div>
-                  {isSuperadmin && onNewSession && (
+                  {showNewSession && (
                     <button
                       type="button"
                       className={cx(btn("primary", "md"), "w-full text-left")}
                       onClick={() => {
-                        setDrawerOpen(false);
-                        onNewSession();
+                        closeDrawer();
+                        openNewSession();
                       }}
                     >
                       ＋ New session
@@ -348,8 +352,8 @@ export function AppHeader({
                     type="button"
                     className={cx(btn("light", "md"), "w-full text-left")}
                     onClick={() => {
-                      setDrawerOpen(false);
-                      setChangingPass(true);
+                      closeDrawer();
+                      openPassword();
                     }}
                   >
                     Change password
@@ -380,8 +384,8 @@ export function AppHeader({
                   type="button"
                   className={cx(btn("primary", "md"), "w-full")}
                   onClick={() => {
-                    setDrawerOpen(false);
-                    setLoggingIn(true);
+                    closeDrawer();
+                    openLogin();
                   }}
                 >
                   Admin login
@@ -390,19 +394,6 @@ export function AppHeader({
             </div>
           </aside>
         </div>
-      )}
-
-      {loggingIn && (
-        <LoginDialog
-          onClose={() => setLoggingIn(false)}
-          onLoggedIn={() => onToast("Logged in")}
-        />
-      )}
-      {changingPass && (
-        <PasswordDialog
-          onClose={() => setChangingPass(false)}
-          onSaved={onToast}
-        />
       )}
     </>
   );

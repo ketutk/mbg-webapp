@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { addDaysISO, getMonthRange } from "@/lib/date";
 import { fmtDate, fmtMonth, todayISO } from "@/lib/format";
 import { queueOf, recommend } from "@/lib/match";
-import { useToast } from "@/lib/stores/ui-store";
+import { useToast, useUiStore } from "@/lib/stores/ui-store";
 import {
   deleteSession,
   finishMatch,
@@ -27,19 +27,15 @@ import type {
   SessionStatus,
   Team,
 } from "@/lib/types";
-import { AppHeader } from "@/components/layout/AppHeader";
 import { AssignDialog, type AssignDialogConfig } from "./AssignDialog";
 import { CourtBoard } from "./CourtBoard";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { HistoryDialog } from "./HistoryDialog";
-import { LoginDialog } from "@/components/auth/LoginDialog";
 import { NextMatch } from "./NextMatch";
 import { PlayerGrid } from "./PlayerGrid";
 import { QueuePanel } from "./QueuePanel";
 import { RosterDialog } from "./RosterDialog";
-import { SessionDialog } from "./SessionDialog";
 import { SessionSettingsDialog } from "./SessionSettingsDialog";
-import { Toast } from "@/components/ui/Toast";
 import { VisitorView } from "./VisitorView";
 import {
   btn,
@@ -67,59 +63,32 @@ export default function MatchApp() {
   const { user, loading: authLoading } = useAuth();
   const currentId = useCurrentSessionId();
 
-  const [creating, setCreating] = useState(false);
-  const [loggingIn, setLoggingIn] = useState(false);
+  const openNewSession = useUiStore((s) => s.openNewSession);
+  const openLogin = useUiStore((s) => s.openLogin);
   const showToast = useToast();
 
-  const isSuperadmin = user?.role === "SUPERADMIN";
-
-  return (
-    <div className="mx-auto max-w-[1190px] px-[30px] pb-14 max-[860px]:px-3.5 max-[860px]:pb-10">
-      <AppHeader
-        active="matches"
-        user={user}
-        onNewSession={() => setCreating(true)}
-        onToast={showToast}
-      />
-
-      <main>
-        {!hydrated || authLoading ? (
-          <div className={shimmerCard} aria-busy="true" />
-        ) : user ? (
-          <InternalMatchesWorkspace
-            user={user}
-            currentSessionId={currentId}
-            onSelectSession={(id) => {
-              selectSession(id);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-            onNewSession={() => setCreating(true)}
-            onToast={showToast}
-          />
-        ) : (
-          <ExternalMatchesView
-            currentSessionId={currentId}
-            onSelectSession={(id) => {
-              selectSession(id);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-            onLogin={() => setLoggingIn(true)}
-          />
-        )}
-      </main>
-
-      {creating && isSuperadmin && (
-        <SessionDialog onClose={() => setCreating(false)} />
-      )}
-      {loggingIn && (
-        <LoginDialog
-          onClose={() => setLoggingIn(false)}
-          onLoggedIn={() => showToast("Logged in")}
-        />
-      )}
-
-      <Toast />
-    </div>
+  return !hydrated || authLoading ? (
+    <div className={shimmerCard} aria-busy="true" />
+  ) : user ? (
+    <InternalMatchesWorkspace
+      user={user}
+      currentSessionId={currentId}
+      onSelectSession={(id) => {
+        selectSession(id);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }}
+      onNewSession={openNewSession}
+      onToast={showToast}
+    />
+  ) : (
+    <ExternalMatchesView
+      currentSessionId={currentId}
+      onSelectSession={(id) => {
+        selectSession(id);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }}
+      onLogin={openLogin}
+    />
   );
 }
 

@@ -4,13 +4,10 @@ import { useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { addDaysISO, getMonthRange, shiftMonth } from "@/lib/date";
 import { fmtDate, fmtMonth, formatIDR, todayISO } from "@/lib/format";
-import { useToast } from "@/lib/stores/ui-store";
+import { useToast, useUiStore } from "@/lib/stores/ui-store";
 import { removeTreasuryEntry, useHydrated, useTreasury } from "@/lib/store";
 import type { EntryType, TreasuryEntry, TreasuryMonthlyBucket } from "@/lib/types";
-import { AppHeader } from "@/components/layout/AppHeader";
 import { ConfirmDialog } from "@/components/ui/Dialog";
-import { LoginDialog } from "@/components/auth/LoginDialog";
-import { Toast } from "@/components/ui/Toast";
 import { TreasuryEntryDialog } from "./TreasuryEntryDialog";
 import {
   btn,
@@ -105,7 +102,7 @@ function computePresetDates(
 export default function TreasuryApp() {
   const hydrated = useHydrated();
   const { user, loading: authLoading } = useAuth();
-  const [loggingIn, setLoggingIn] = useState(false);
+  const openLogin = useUiStore((s) => s.openLogin);
   const [dialogMode, setDialogMode] = useState<{
     initialType?: EntryType;
     editingEntry?: TreasuryEntry;
@@ -115,46 +112,33 @@ export default function TreasuryApp() {
   const isSuperadmin = user?.role === "SUPERADMIN";
 
   return (
-    <div className="mx-auto max-w-[1190px] px-[30px] pb-14 max-[860px]:px-3.5 max-[860px]:pb-10">
-      <AppHeader active="treasury" user={user} onToast={showToast} />
-
-      <main>
-        {!hydrated || authLoading ? (
-          <div className={shimmerCard} aria-busy="true" />
-        ) : !user ? (
-          <section
-            className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}
-          >
-            <div className={eyebrow}>Organisers only</div>
-            <h1 className="mt-2 font-display text-2xl font-extrabold text-[#183e6b]">
-              Please log in to view treasury
-            </h1>
-            <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
-              Club treasury balances and transactions are restricted to organisers.
-            </p>
-            <button
-              className={btn("primary")}
-              onClick={() => setLoggingIn(true)}
-            >
-              Admin login
-            </button>
-          </section>
-        ) : (
-          <TreasuryContent
-            isSuperadmin={isSuperadmin}
-            onAdd={(type) => setDialogMode({ initialType: type })}
-            onEdit={(entry) => setDialogMode({ editingEntry: entry })}
-            onToast={showToast}
-          />
-        )}
-      </main>
-
-      {loggingIn && (
-        <LoginDialog
-          onClose={() => setLoggingIn(false)}
-          onLoggedIn={() => showToast("Logged in")}
+    <>
+      {!hydrated || authLoading ? (
+        <div className={shimmerCard} aria-busy="true" />
+      ) : !user ? (
+        <section
+          className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}
+        >
+          <div className={eyebrow}>Organisers only</div>
+          <h1 className="mt-2 font-display text-2xl font-extrabold text-[#183e6b]">
+            Please log in to view treasury
+          </h1>
+          <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
+            Club treasury balances and transactions are restricted to organisers.
+          </p>
+          <button className={btn("primary")} onClick={openLogin}>
+            Admin login
+          </button>
+        </section>
+      ) : (
+        <TreasuryContent
+          isSuperadmin={isSuperadmin}
+          onAdd={(type) => setDialogMode({ initialType: type })}
+          onEdit={(entry) => setDialogMode({ editingEntry: entry })}
+          onToast={showToast}
         />
       )}
+
       {dialogMode && (
         <TreasuryEntryDialog
           initialType={dialogMode.initialType}
@@ -163,9 +147,7 @@ export default function TreasuryApp() {
           onSaved={showToast}
         />
       )}
-
-      <Toast />
-    </div>
+    </>
   );
 }
 
