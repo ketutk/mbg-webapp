@@ -33,3 +33,4 @@ export async function removeTreasuryEntry(id: string): Promise<void> {
   await api<{ ok: boolean }>(`/treasury/entries/${id}`, { method: "DELETE" });
   await queryClient.invalidateQueries({ queryKey: queryKeys.treasury });
 }
+

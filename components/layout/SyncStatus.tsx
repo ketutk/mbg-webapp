@@ -34,3 +34,4 @@ export function SyncStatus({ variant }: { variant: "desktop" | "drawer" }) {
     </span>
   );
 }
+

@@ -12,3 +12,4 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "treasury", href: "/treasury", label: "Treasury" },
   { key: "admins", href: "/admins", label: "Admins", superadminOnly: true },
 ];
+

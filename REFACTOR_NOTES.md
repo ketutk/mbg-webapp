@@ -20,3 +20,4 @@ Intentional non-changes and pre-existing oddities preserved verbatim during the 
 
 - TypeScript (`npx tsc --noEmit`), ESLint (`npm run lint`), and Next.js production build (`npm run build`) ran cleanly after every commit phase.
 - Automated UI/browser E2E tests do not exist in this repo; interactive visual/regression checks in `REFACTOR_PLAN.md` §6 (desktop/mobile viewports, auth flows, live mutations against a seeded database) were not executed live against a running dev server/database in this environment and should be spot-checked locally against a running app instance.
+

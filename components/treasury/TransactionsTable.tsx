@@ -119,3 +119,4 @@ export function TransactionsTable({
     </div>
   );
 }
+
