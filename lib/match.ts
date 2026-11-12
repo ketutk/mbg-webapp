@@ -162,3 +162,15 @@ export function recommend(
     level: fairnessGap(ranked).gap === 0,
   };
 }
+
+export function prefillFromRec(
+  rec: Recommendation | null,
+): [Team, Team] | undefined {
+  return rec
+    ? [
+        [rec.teams[0][0].id, rec.teams[0][1].id],
+        [rec.teams[1][0].id, rec.teams[1][1].id],
+      ]
+    : undefined;
+}
+
