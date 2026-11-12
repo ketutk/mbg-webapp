@@ -3,9 +3,9 @@
 import { fmtDate } from "@/lib/format";
 import { fairnessGap } from "@/lib/match";
 import { selectSession, useSessionSummary } from "@/lib/store";
+import { initials } from "@/lib/initials";
 import type { PublicGame } from "@/lib/types";
 import { CourtCard } from "./CourtCard";
-import { initials } from "./PlayerGrid";
 import {
   avatar,
   btn,

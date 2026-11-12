@@ -8,6 +8,7 @@ import {
   setPlayed,
 } from "@/lib/store";
 import { fairnessGap, getStats } from "@/lib/match";
+import { initials } from "@/lib/initials";
 import type { Session } from "@/lib/types";
 import { ConfirmDialog } from "./Dialog";
 import {
@@ -24,18 +25,6 @@ import {
   spinner,
   sub,
 } from "@/lib/ui";
-
-export function initials(name: string): string {
-  return name
-    .replace(/[^a-zA-Z\s]/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
 
 const headCell =
   "border-b border-[#f0f5f9] bg-[#fafdff] py-2.5 text-[10px] font-extrabold text-[#5d7f9d]";

@@ -1,8 +1,8 @@
 "use client";
 
 import { fairnessGap, getStats, type Recommendation } from "@/lib/match";
+import { initials } from "@/lib/initials";
 import type { Player, Session, Team } from "@/lib/types";
-import { initials } from "./PlayerGrid";
 import {
   avatarOnCourt,
   btn,

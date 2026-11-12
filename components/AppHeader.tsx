@@ -8,7 +8,7 @@ import { logout } from "@/lib/auth";
 import type { AuthUser } from "@/lib/types";
 import { LoginDialog } from "./LoginDialog";
 import { PasswordDialog } from "./PasswordDialog";
-import { initials } from "./PlayerGrid";
+import { initials } from "@/lib/initials";
 import { avatar, btn, cx, linkBtn, pill, spinner } from "@/lib/ui";
 
 export function AppHeader({

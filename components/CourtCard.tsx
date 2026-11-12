@@ -1,8 +1,8 @@
 "use client";
 
 import { fmtTime } from "@/lib/format";
+import { initials } from "@/lib/initials";
 import type { Game, PublicGame } from "@/lib/types";
-import { initials } from "./PlayerGrid";
 import {
   avatar,
   btn,
