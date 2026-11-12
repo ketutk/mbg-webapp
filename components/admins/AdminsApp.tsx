@@ -1,14 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
+import { useToast } from "@/lib/stores/ui-store";
 import { deleteAdmin, useAdmins, useHydrated } from "@/lib/store";
 import type { AdminUser } from "@/lib/types";
 import { AdminDialog } from "./AdminDialog";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ConfirmDialog } from "@/components/ui/Dialog";
+import { Toast } from "@/components/ui/Toast";
 import {
   btn,
   card,
@@ -23,7 +25,6 @@ import {
   shimmerCard,
   spinner,
   sub,
-  toastBox,
 } from "@/lib/ui";
 
 export default function AdminsApp() {
@@ -31,14 +32,7 @@ export default function AdminsApp() {
   const { user, loading: authLoading } = useAuth();
   const [creating, setCreating] = useState(false);
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
-  const [toast, setToast] = useState("");
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  function showToast(msg: string) {
-    setToast(msg);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(""), 2600);
-  }
+  const showToast = useToast();
 
   const isSuperadmin = user?.role === "SUPERADMIN";
 
@@ -88,15 +82,7 @@ export default function AdminsApp() {
         />
       )}
 
-      <div
-        className={cx(
-          toastBox,
-          toast ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0",
-        )}
-        role="status"
-      >
-        {toast}
-      </div>
+      <Toast />
     </div>
   );
 }

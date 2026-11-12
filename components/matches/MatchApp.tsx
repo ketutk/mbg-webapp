@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { addDaysISO, getMonthRange } from "@/lib/date";
 import { fmtDate, fmtMonth, todayISO } from "@/lib/format";
 import { queueOf, recommend } from "@/lib/match";
+import { useToast } from "@/lib/stores/ui-store";
 import {
   deleteSession,
   finishMatch,
@@ -38,6 +39,7 @@ import { QueuePanel } from "./QueuePanel";
 import { RosterDialog } from "./RosterDialog";
 import { SessionDialog } from "./SessionDialog";
 import { SessionSettingsDialog } from "./SessionSettingsDialog";
+import { Toast } from "@/components/ui/Toast";
 import { VisitorView } from "./VisitorView";
 import {
   btn,
@@ -56,7 +58,6 @@ import {
   shimmerCard,
   spinner,
   sub,
-  toastBox,
 } from "@/lib/ui";
 
 type PeriodPreset = "all" | "this-month" | "last-30" | "this-year" | "custom";
@@ -68,14 +69,7 @@ export default function MatchApp() {
 
   const [creating, setCreating] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
-  const [toast, setToast] = useState("");
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  function showToast(msg: string) {
-    setToast(msg);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(""), 2600);
-  }
+  const showToast = useToast();
 
   const isSuperadmin = user?.role === "SUPERADMIN";
 
@@ -124,15 +118,7 @@ export default function MatchApp() {
         />
       )}
 
-      <div
-        className={cx(
-          toastBox,
-          toast ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0",
-        )}
-        role="status"
-      >
-        {toast}
-      </div>
+      <Toast />
     </div>
   );
 }

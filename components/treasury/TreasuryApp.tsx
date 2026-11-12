@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { addDaysISO, getMonthRange, shiftMonth } from "@/lib/date";
 import { fmtDate, fmtMonth, formatIDR, todayISO } from "@/lib/format";
+import { useToast } from "@/lib/stores/ui-store";
 import { removeTreasuryEntry, useHydrated, useTreasury } from "@/lib/store";
 import type { EntryType, TreasuryEntry, TreasuryMonthlyBucket } from "@/lib/types";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { LoginDialog } from "@/components/auth/LoginDialog";
+import { Toast } from "@/components/ui/Toast";
 import { TreasuryEntryDialog } from "./TreasuryEntryDialog";
 import {
   btn,
@@ -27,7 +29,6 @@ import {
   shimmerCard,
   spinner,
   sub,
-  toastBox,
 } from "@/lib/ui";
 
 type PeriodPreset =
@@ -109,14 +110,7 @@ export default function TreasuryApp() {
     initialType?: EntryType;
     editingEntry?: TreasuryEntry;
   } | null>(null);
-  const [toast, setToast] = useState("");
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  function showToast(msg: string) {
-    setToast(msg);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(""), 2600);
-  }
+  const showToast = useToast();
 
   const isSuperadmin = user?.role === "SUPERADMIN";
 
@@ -170,15 +164,7 @@ export default function TreasuryApp() {
         />
       )}
 
-      <div
-        className={cx(
-          toastBox,
-          toast ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0",
-        )}
-        role="status"
-      >
-        {toast}
-      </div>
+      <Toast />
     </div>
   );
 }
