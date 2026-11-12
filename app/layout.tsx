@@ -29,6 +29,9 @@ export const metadata: Metadata = {
     default: SITE_TITLE,
     template: `%s · ${SITE_NAME}`,
   },
+  verification:{
+    google:"dAgrFBWZPzgSO1T7qbBF6YOQ8yppJkv0mQ3PV7lu6z8"
+  },
   description: SITE_DESCRIPTION,
   applicationName: SITE_NAME,
   keywords: SITE_KEYWORDS,
