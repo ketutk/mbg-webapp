@@ -10,7 +10,7 @@ import {
 } from "@/lib/match";
 import { assignInput, gameUpdateInput } from "@/lib/schemas";
 import type { Game, Session, Team } from "@/lib/types";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/ui/Dialog";
 import {
   btn,
   cx,

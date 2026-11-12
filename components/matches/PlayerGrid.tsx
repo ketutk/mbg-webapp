@@ -10,7 +10,7 @@ import {
 import { fairnessGap, getStats } from "@/lib/match";
 import { initials } from "@/lib/initials";
 import type { Session } from "@/lib/types";
-import { ConfirmDialog } from "./Dialog";
+import { ConfirmDialog } from "@/components/ui/Dialog";
 import {
   avatar,
   card,

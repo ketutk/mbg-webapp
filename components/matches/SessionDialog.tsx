@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { updateSession } from "@/lib/store";
-import { sessionPatchInput } from "@/lib/schemas";
-import type { Session, SessionStatus } from "@/lib/types";
-import { Dialog } from "./Dialog";
+import { createSession, parseNames, todayISO } from "@/lib/store";
+import { sessionInput } from "@/lib/schemas";
+import type { SessionStatus } from "@/lib/types";
+import { Dialog } from "@/components/ui/Dialog";
 import {
   btn,
   cx,
@@ -13,48 +13,43 @@ import {
   fieldInput,
   fieldLabel,
   fieldRow,
+  fieldTextarea,
   modalActions,
   notice,
   spinner,
 } from "@/lib/ui";
 
-export function SessionSettingsDialog({
-  session,
-  onClose,
-  onSaved,
-}: {
-  session: Session;
-  onClose: () => void;
-  onSaved: (msg: string) => void;
-}) {
-  const [name, setName] = useState(session.name);
-  const [date, setDate] = useState(session.date);
-  const [courtCount, setCourtCount] = useState(session.courtCount);
-  const [status, setStatus] = useState<SessionStatus>(session.status);
+export function SessionDialog({ onClose }: { onClose: () => void }) {
+  const [date, setDate] = useState(todayISO);
+  const [name, setName] = useState("");
+  const [courtCount, setCourtCount] = useState(1);
+  const [status, setStatus] = useState<SessionStatus>("OPEN");
+  const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const names = parseNames(text);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const parsed = sessionPatchInput.safeParse({
-      name: name.trim(),
+    const parsed = sessionInput.safeParse({
+      name: name.trim() || `Game day ${date}`,
       date,
       courtCount,
       status,
+      names,
     });
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Invalid session settings");
+      setError(parsed.error.issues[0]?.message ?? "Invalid session details");
       return;
     }
 
     setBusy(true);
     try {
-      await updateSession(session.id, parsed.data);
-      onSaved("Session settings saved");
+      await createSession(parsed.data);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update session");
+      setError(err instanceof Error ? err.message : "Could not create session");
     } finally {
       setBusy(false);
     }
@@ -62,8 +57,8 @@ export function SessionSettingsDialog({
 
   return (
     <Dialog
-      title="Session settings"
-      description="Update the session name, date, number of courts, or open/closed visibility."
+      title="New game session"
+      description="Name the session, set your court count, choose visibility status, and paste your players one per line."
       onClose={onClose}
     >
       <form onSubmit={submit}>
@@ -71,18 +66,18 @@ export function SessionSettingsDialog({
           <label className={field}>
             <span className={fieldLabel}>Session name</span>
             <input
-              id="settings-name"
+              id="session-name"
               className={fieldInput}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              required
+              placeholder="Minggu pagi"
               autoFocus
             />
           </label>
           <label className={field}>
             <span className={fieldLabel}>Date</span>
             <input
-              id="settings-date"
+              id="session-date"
               className={fieldInput}
               type="date"
               value={date}
@@ -95,7 +90,7 @@ export function SessionSettingsDialog({
           <label className={field}>
             <span className={fieldLabel}>Courts available (1–8)</span>
             <input
-              id="settings-courts"
+              id="session-courts"
               className={fieldInput}
               type="number"
               min={1}
@@ -108,7 +103,7 @@ export function SessionSettingsDialog({
           <label className={field}>
             <span className={fieldLabel}>Status</span>
             <select
-              id="settings-status"
+              id="session-status"
               className={fieldInput}
               value={status}
               onChange={(e) => setStatus(e.target.value as SessionStatus)}
@@ -118,8 +113,22 @@ export function SessionSettingsDialog({
             </select>
           </label>
         </div>
+        <label className={field}>
+          <span className={fieldLabel}>Players</span>
+          <textarea
+            id="session-players"
+            className={fieldTextarea}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={"1. Andi\n2. Budi\n3. Citra\n4. Dewi\n5. Eko"}
+          />
+        </label>
         <div className={notice}>
-          Court count cannot be lowered below an occupied court. Closed sessions are hidden from visitors.
+          {names.length
+            ? `${names.length} player${names.length === 1 ? "" : "s"}${
+                names.length < 4 ? " · you need at least 4 for match recommendations" : ""
+              }`
+            : "No players yet — you can also add them later."}
         </div>
         {error && <div className={errorNotice}>{error}</div>}
         <div className={modalActions}>
@@ -133,17 +142,17 @@ export function SessionSettingsDialog({
           </button>
           <button
             type="submit"
-            id="save-settings"
+            id="create-session"
             className={btn("primary")}
             disabled={busy}
           >
             {busy ? (
               <>
                 <span className={cx(spinner, "mr-1.5")} />
-                Saving…
+                Creating…
               </>
             ) : (
-              "Save changes"
+              "Create session"
             )}
           </button>
         </div>
@@ -151,4 +160,3 @@ export function SessionSettingsDialog({
     </Dialog>
   );
 }
-

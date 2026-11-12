@@ -6,9 +6,9 @@ import { addDaysISO, getMonthRange, shiftMonth } from "@/lib/date";
 import { fmtDate, fmtMonth, formatIDR, todayISO } from "@/lib/format";
 import { removeTreasuryEntry, useHydrated, useTreasury } from "@/lib/store";
 import type { EntryType, TreasuryEntry, TreasuryMonthlyBucket } from "@/lib/types";
-import { AppHeader } from "./AppHeader";
-import { ConfirmDialog } from "./Dialog";
-import { LoginDialog } from "./LoginDialog";
+import { AppHeader } from "@/components/layout/AppHeader";
+import { ConfirmDialog } from "@/components/ui/Dialog";
+import { LoginDialog } from "@/components/auth/LoginDialog";
 import { TreasuryEntryDialog } from "./TreasuryEntryDialog";
 import {
   btn,

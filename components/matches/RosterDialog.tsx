@@ -4,7 +4,7 @@ import { useState } from "react";
 import { parseNames, setRoster } from "@/lib/store";
 import { rosterInput } from "@/lib/schemas";
 import type { Session } from "@/lib/types";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/ui/Dialog";
 import {
   btn,
   cx,

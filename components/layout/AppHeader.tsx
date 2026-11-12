@@ -6,8 +6,8 @@ import Link from "next/link";
 import { useIsFetching } from "@tanstack/react-query";
 import { logout } from "@/lib/auth";
 import type { AuthUser } from "@/lib/types";
-import { LoginDialog } from "./LoginDialog";
-import { PasswordDialog } from "./PasswordDialog";
+import { LoginDialog } from "@/components/auth/LoginDialog";
+import { PasswordDialog } from "@/components/auth/PasswordDialog";
 import { initials } from "@/lib/initials";
 import { avatar, btn, cx, linkBtn, pill, spinner } from "@/lib/ui";
 

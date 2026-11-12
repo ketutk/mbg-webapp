@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createAdmin, resetAdminPassword } from "@/lib/store";
 import { adminCreateInput, adminPasswordInput } from "@/lib/schemas";
 import type { AdminUser } from "@/lib/types";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/ui/Dialog";
 import {
   btn,
   cx,

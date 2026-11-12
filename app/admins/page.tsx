@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import AdminsApp from "@/components/AdminsApp";
+import AdminsApp from "@/components/admins/AdminsApp";
 
 export const metadata: Metadata = {
   title: "Admins",

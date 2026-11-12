@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import TreasuryApp from "@/components/TreasuryApp";
+import TreasuryApp from "@/components/treasury/TreasuryApp";
 
 export const metadata: Metadata = {
   title: "Treasury",

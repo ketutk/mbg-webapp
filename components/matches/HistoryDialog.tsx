@@ -4,7 +4,7 @@ import { useState } from "react";
 import { fmtTime } from "@/lib/format";
 import { removeGame } from "@/lib/store";
 import type { Session } from "@/lib/types";
-import { ConfirmDialog, Dialog } from "./Dialog";
+import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import {
   btn,
   chip,

@@ -26,12 +26,12 @@ import type {
   SessionStatus,
   Team,
 } from "@/lib/types";
-import { AppHeader } from "./AppHeader";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { AssignDialog, type AssignDialogConfig } from "./AssignDialog";
 import { CourtBoard } from "./CourtBoard";
-import { ConfirmDialog } from "./Dialog";
+import { ConfirmDialog } from "@/components/ui/Dialog";
 import { HistoryDialog } from "./HistoryDialog";
-import { LoginDialog } from "./LoginDialog";
+import { LoginDialog } from "@/components/auth/LoginDialog";
 import { NextMatch } from "./NextMatch";
 import { PlayerGrid } from "./PlayerGrid";
 import { QueuePanel } from "./QueuePanel";

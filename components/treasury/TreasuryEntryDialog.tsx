@@ -4,7 +4,7 @@ import { useState } from "react";
 import { addTreasuryEntry, editTreasuryEntry, todayISO } from "@/lib/store";
 import { treasuryInput, treasuryPatchInput } from "@/lib/schemas";
 import type { EntryType, TreasuryEntry } from "@/lib/types";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/ui/Dialog";
 import {
   btn,
   cx,

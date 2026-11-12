@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { changePassword } from "@/lib/auth";
 import { changePasswordInput } from "@/lib/schemas";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/ui/Dialog";
 import {
   btn,
   cx,

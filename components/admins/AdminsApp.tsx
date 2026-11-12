@@ -7,8 +7,8 @@ import { fmtDate } from "@/lib/format";
 import { deleteAdmin, useAdmins, useHydrated } from "@/lib/store";
 import type { AdminUser } from "@/lib/types";
 import { AdminDialog } from "./AdminDialog";
-import { AppHeader } from "./AppHeader";
-import { ConfirmDialog } from "./Dialog";
+import { AppHeader } from "@/components/layout/AppHeader";
+import { ConfirmDialog } from "@/components/ui/Dialog";
 import {
   btn,
   card,

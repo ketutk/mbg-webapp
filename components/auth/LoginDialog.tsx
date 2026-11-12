@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { login } from "@/lib/auth";
 import { loginSchema } from "@/lib/schemas";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/ui/Dialog";
 import {
   btn,
   cx,
