@@ -6,13 +6,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { logout, useAuth } from "@/lib/auth";
 import { useToast, useUiStore } from "@/lib/stores/ui-store";
-import { btn, cx, linkBtn, pill, spinner } from "@/lib/ui";
+import { btn, cx, linkBtn, pill, skelBar, spinner } from "@/lib/ui";
 import { MobileDrawer } from "./MobileDrawer";
 import { NAV_ITEMS, type NavKey } from "./nav-items";
 import { SyncStatus } from "./SyncStatus";
 
 export function AppHeader() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const pathname = usePathname();
   const active: NavKey =
     pathname === "/treasury"
@@ -83,7 +83,16 @@ export function AppHeader() {
         <div className="flex items-center gap-2.5 max-[860px]:hidden">
           <SyncStatus variant="desktop" />
 
-          {user ? (
+          {loading ? (
+            <div
+              className="flex items-center gap-2"
+              aria-hidden="true"
+              data-skeleton=""
+            >
+              <div className={cx(skelBar("w-20", "h-9"), "rounded-xl")} />
+              <div className={cx(skelBar("w-24", "h-9"), "rounded-xl")} />
+            </div>
+          ) : user ? (
             <>
               <nav
                 className="flex items-center gap-1.5"
@@ -162,7 +171,13 @@ export function AppHeader() {
 
         {/* Tablet & phone controls (<= 860px) */}
         <div className="hidden items-center gap-2 max-[860px]:flex">
-          {user ? (
+          {loading ? (
+            <div
+              className={cx(skelBar("w-[84px]", "h-9"), "rounded-xl")}
+              aria-hidden="true"
+              data-skeleton=""
+            />
+          ) : user ? (
             <>
               {showNewSession && (
                 <button

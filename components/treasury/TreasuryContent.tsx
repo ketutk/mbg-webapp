@@ -6,11 +6,11 @@ import { formatIDR } from "@/lib/format";
 import { removeTreasuryEntry, useTreasury } from "@/lib/store";
 import { useToast } from "@/lib/stores/ui-store";
 import type { EntryType, TreasuryEntry } from "@/lib/types";
-import { shimmerCard } from "@/lib/ui";
 import { MonthlyCashflowCard } from "./MonthlyCashflowCard";
 import { TransactionsCard } from "./TransactionsCard";
 import { TreasuryHero } from "./TreasuryHero";
 import { TreasuryKpiCards } from "./TreasuryKpiCards";
+import { TreasurySkeleton } from "./TreasurySkeleton";
 import { useTreasuryFilters } from "./useTreasuryFilters";
 
 export function TreasuryContent({
@@ -52,7 +52,12 @@ export function TreasuryContent({
   const { data: treasury, loading, fetching } = useTreasury(filterParams);
 
   if (loading && !treasury) {
-    return <div className={shimmerCard} aria-busy="true" />;
+    return (
+      <>
+        <TreasuryHero onAdd={onAdd} />
+        <TreasurySkeleton />
+      </>
+    );
   }
 
   if (!treasury) return null;

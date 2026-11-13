@@ -1,16 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/auth";
-import { useHydrated } from "@/lib/store";
 import { useToast, useUiStore } from "@/lib/stores/ui-store";
 import type { EntryType, TreasuryEntry } from "@/lib/types";
-import { btn, card, cx, eyebrow, shimmerCard } from "@/lib/ui";
+import { btn, card, cx, eyebrow } from "@/lib/ui";
 import { TreasuryContent } from "./TreasuryContent";
-import { TreasuryEntryDialog } from "./TreasuryEntryDialog";
+import { TreasuryHero } from "./TreasuryHero";
+import { TreasurySkeleton } from "./TreasurySkeleton";
+
+const TreasuryEntryDialog = dynamic(() =>
+  import("./TreasuryEntryDialog").then((m) => m.TreasuryEntryDialog),
+);
 
 export default function TreasuryApp() {
-  const hydrated = useHydrated();
   const { user, loading: authLoading } = useAuth();
   const openLogin = useUiStore((s) => s.openLogin);
   const [dialogMode, setDialogMode] = useState<{
@@ -23,8 +27,11 @@ export default function TreasuryApp() {
 
   return (
     <>
-      {!hydrated || authLoading ? (
-        <div className={shimmerCard} aria-busy="true" />
+      {authLoading ? (
+        <>
+          <TreasuryHero />
+          <TreasurySkeleton />
+        </>
       ) : !user ? (
         <section
           className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}
