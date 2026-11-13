@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { SkeletonBar } from "@/components/ui/Skeleton";
 import { fmtDate } from "@/lib/format";
 import { selectSession, useSessionsList } from "@/lib/store";
 import {
@@ -12,9 +13,9 @@ import {
   h1,
   linkBtn,
   pill,
-  shimmerCard,
   spinner,
 } from "@/lib/ui";
+import { ExternalMatchesSkeleton } from "./ExternalMatchesSkeleton";
 import { VisitorView } from "./VisitorView";
 
 export function ExternalMatchesView({
@@ -52,12 +53,6 @@ export function ExternalMatchesView({
     );
   }
 
-  if (loading && !data) {
-    return <div className={shimmerCard} aria-busy="true" />;
-  }
-
-  if (!data) return null;
-
   return (
     <>
       <section className="mt-8 mb-6 flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
@@ -70,7 +65,7 @@ export function ExternalMatchesView({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {fetching && (
+          {fetching && data && (
             <span
               className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#5089b7]"
               aria-live="polite"
@@ -79,13 +74,21 @@ export function ExternalMatchesView({
               Syncing…
             </span>
           )}
-          <span className={pill("ok")}>
-            {data.openCount} open session{data.openCount === 1 ? "" : "s"}
-          </span>
+          {data ? (
+            <span className={pill("ok")}>
+              {data.openCount} open session{data.openCount === 1 ? "" : "s"}
+            </span>
+          ) : (
+            <SkeletonBar w="w-28" h="h-6" className="rounded-full" />
+          )}
         </div>
       </section>
 
-      {(data.openCount > 3 || searchText.trim().length > 0) && (
+      {loading && !data ? (
+        <ExternalMatchesSkeleton />
+      ) : data ? (
+        <>
+          {(data.openCount > 3 || searchText.trim().length > 0) && (
         <div className="mb-5 flex flex-wrap items-center gap-2.5">
           <div className="relative max-w-[360px] flex-1">
             <input
@@ -247,6 +250,8 @@ export function ExternalMatchesView({
           )}
         </>
       )}
+        </>
+      ) : null}
     </>
   );
 }

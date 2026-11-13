@@ -1,17 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
-import { useHydrated } from "@/lib/store";
 import { useToast } from "@/lib/stores/ui-store";
 import type { AdminUser } from "@/lib/types";
-import { btn, card, cx, eyebrow, shimmerCard } from "@/lib/ui";
-import { AdminDialog } from "./AdminDialog";
+import { btn, card, cx, eyebrow, h1 } from "@/lib/ui";
 import { AdminsContent } from "./AdminsContent";
+import { AdminsSkeleton } from "./AdminsSkeleton";
+
+const AdminDialog = dynamic(() =>
+  import("./AdminDialog").then((m) => m.AdminDialog),
+);
 
 export default function AdminsApp() {
-  const hydrated = useHydrated();
   const { user, loading: authLoading } = useAuth();
   const [creating, setCreating] = useState(false);
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
@@ -21,8 +24,19 @@ export default function AdminsApp() {
 
   return (
     <>
-      {!hydrated || authLoading ? (
-        <div className={shimmerCard} aria-busy="true" />
+      {authLoading ? (
+        <>
+          <section className="mt-8 mb-[22px] flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
+            <div>
+              <div className={eyebrow}>Superadmin</div>
+              <h1 className={h1}>Admin accounts</h1>
+            </div>
+            <button id="add-admin-btn" className={btn("primary")} disabled>
+              ＋ Add admin
+            </button>
+          </section>
+          <AdminsSkeleton />
+        </>
       ) : !isSuperadmin ? (
         <section
           className={cx(card, "mx-auto mt-14 max-w-[480px] p-8 text-center")}

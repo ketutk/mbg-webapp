@@ -1,14 +1,13 @@
 "use client";
 
 import { useAuth } from "@/lib/auth";
-import { selectSession, useCurrentSessionId, useHydrated } from "@/lib/store";
+import { selectSession, useCurrentSessionId } from "@/lib/store";
 import { useUiStore } from "@/lib/stores/ui-store";
-import { shimmerCard } from "@/lib/ui";
 import { ExternalMatchesView } from "./ExternalMatchesView";
 import { InternalMatchesWorkspace } from "./InternalMatchesWorkspace";
+import { MatchesSkeleton } from "./MatchesSkeleton";
 
 export default function MatchApp() {
-  const hydrated = useHydrated();
   const { user, loading: authLoading } = useAuth();
   const currentId = useCurrentSessionId();
 
@@ -19,8 +18,8 @@ export default function MatchApp() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  return !hydrated || authLoading ? (
-    <div className={shimmerCard} aria-busy="true" />
+  return authLoading ? (
+    <MatchesSkeleton />
   ) : user ? (
     <InternalMatchesWorkspace
       user={user}

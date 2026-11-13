@@ -74,7 +74,7 @@ export async function getTreasurySummary(
       : {}),
   };
 
-  const [allTimeSums, periodSums, totalEntries, allActiveForChart] =
+  const [allTimeSums, periodSums, totalEntries, latestActiveEntry] =
     await Promise.all([
       prisma.treasuryEntry.groupBy({
         by: ["type"],
@@ -88,9 +88,9 @@ export async function getTreasurySummary(
         _count: { _all: true },
       }),
       prisma.treasuryEntry.count({ where: filteredWhere }),
-      prisma.treasuryEntry.findMany({
+      prisma.treasuryEntry.findFirst({
         where: { deletedAt: null },
-        select: { date: true, type: true, amount: true },
+        select: { date: true },
         orderBy: { date: "desc" },
       }),
     ]);
@@ -98,12 +98,28 @@ export async function getTreasurySummary(
   const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
   const page = Math.min(requestedPage, totalPages);
 
-  const entries = await prisma.treasuryEntry.findMany({
-    where: filteredWhere,
-    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-    skip: (page - 1) * pageSize,
-    take: pageSize,
-  });
+  const latestYm = latestActiveEntry
+    ? toDateStr(latestActiveEntry.date).slice(0, 7)
+    : toDateStr(new Date()).slice(0, 7);
+  const monthKeys = buildRecentMonths(latestYm, 6);
+  const chartStartDate = fromDateStr(`${monthKeys[0]}-01`);
+
+  const [entries, recentChartSums] = await Promise.all([
+    prisma.treasuryEntry.findMany({
+      where: filteredWhere,
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.treasuryEntry.groupBy({
+      by: ["type", "date"],
+      where: {
+        deletedAt: null,
+        date: { gte: chartStartDate },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
 
   let income = 0;
   let expense = 0;
@@ -127,20 +143,17 @@ export async function getTreasurySummary(
     }
   }
 
-  const latestYm = allActiveForChart[0]
-    ? toDateStr(allActiveForChart[0].date).slice(0, 7)
-    : toDateStr(new Date()).slice(0, 7);
-  const monthKeys = buildRecentMonths(latestYm, 6);
   const bucketMap = new Map<string, TreasuryMonthlyBucket>(
     monthKeys.map((m) => [m, { month: m, income: 0, expense: 0 }]),
   );
 
-  for (const item of allActiveForChart) {
-    const ym = toDateStr(item.date).slice(0, 7);
+  for (const row of recentChartSums) {
+    const ym = toDateStr(row.date).slice(0, 7);
     const bucket = bucketMap.get(ym);
     if (!bucket) continue;
-    if (item.type === "INCOME") bucket.income += item.amount;
-    else bucket.expense += item.amount;
+    const sum = row._sum.amount ?? 0;
+    if (row.type === "INCOME") bucket.income += sum;
+    else bucket.expense += sum;
   }
 
   const userMap = await resolveUsernames(entries.map((e) => e.createdById));

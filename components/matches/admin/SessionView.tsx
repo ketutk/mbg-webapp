@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { fmtDate } from "@/lib/format";
 import { prefillFromRec, queueOf, recommend } from "@/lib/match";
@@ -20,15 +21,25 @@ import type {
   SessionStatus,
   Team,
 } from "@/lib/types";
-import { AssignDialog, type AssignDialogConfig } from "../AssignDialog";
+import type { AssignDialogConfig } from "../AssignDialog";
 import { CourtBoard } from "../CourtBoard";
-import { HistoryDialog } from "../HistoryDialog";
 import { NextMatch } from "../NextMatch";
 import { PlayerGrid } from "../PlayerGrid";
 import { QueuePanel } from "../QueuePanel";
-import { RosterDialog } from "../RosterDialog";
-import { SessionSettingsDialog } from "../SessionSettingsDialog";
 import { SessionHeaderBar } from "./SessionHeaderBar";
+
+const AssignDialog = dynamic(() =>
+  import("../AssignDialog").then((m) => m.AssignDialog),
+);
+const HistoryDialog = dynamic(() =>
+  import("../HistoryDialog").then((m) => m.HistoryDialog),
+);
+const RosterDialog = dynamic(() =>
+  import("../RosterDialog").then((m) => m.RosterDialog),
+);
+const SessionSettingsDialog = dynamic(() =>
+  import("../SessionSettingsDialog").then((m) => m.SessionSettingsDialog),
+);
 
 export function SessionView({
   session,
@@ -60,6 +71,23 @@ export function SessionView({
   const rec = useMemo(() => recommend(session, seed), [session, seed]);
   const nextUp = useMemo(() => new Set(rec?.players.map((p) => p.id)), [rec]);
   const queue = useMemo(() => queueOf(session), [session]);
+
+  useEffect(() => {
+    const warm = () => {
+      void import("../AssignDialog");
+      void import("../HistoryDialog");
+      if (isSuperadmin) {
+        void import("../RosterDialog");
+        void import("../SessionSettingsDialog");
+      }
+    };
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(warm, { timeout: 2500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = setTimeout(warm, 1500);
+    return () => clearTimeout(t);
+  }, [isSuperadmin]);
 
   async function handleToggleSessionStatus() {
     const nextStatus: SessionStatus =

@@ -3,33 +3,19 @@ import { api } from "../api";
 import { queryKeys } from "../query";
 import type {
   AdminUser,
-  Session,
   SessionSummary,
   SessionsFilterParams,
-  SessionsPage,
   TreasuryFilterParams,
   TreasurySummary,
 } from "../types";
+import { sessionDetailOptions, sessionsPageOptions } from "./query-options";
 
 export function useSessionsList(
   params?: SessionsFilterParams,
   pollMs = 10_000,
 ) {
   const query = useQuery({
-    queryKey: queryKeys.sessionsPage(params),
-    queryFn: async () => {
-      const sp = new URLSearchParams();
-      if (params?.from) sp.set("from", params.from);
-      if (params?.to) sp.set("to", params.to);
-      if (params?.status && params.status !== "ALL") {
-        sp.set("status", params.status);
-      }
-      if (params?.q?.trim()) sp.set("q", params.q.trim());
-      if (params?.page && params.page > 1) sp.set("page", String(params.page));
-      if (params?.pageSize) sp.set("pageSize", String(params.pageSize));
-      const qs = sp.toString();
-      return api<SessionsPage>(qs ? `/sessions?${qs}` : "/sessions");
-    },
+    ...sessionsPageOptions(params),
     placeholderData: keepPreviousData,
     refetchInterval: pollMs,
     refetchIntervalInBackground: false,
@@ -69,13 +55,7 @@ export function useSessionSummary(sessionId: string | null) {
 
 export function useSessionDetail(sessionId: string | null) {
   const query = useQuery({
-    queryKey: queryKeys.sessionDetail(sessionId ?? ""),
-    queryFn: async () => {
-      const { session } = await api<{ session: Session }>(
-        `/sessions/${sessionId}`,
-      );
-      return session;
-    },
+    ...sessionDetailOptions(sessionId ?? ""),
     enabled: Boolean(sessionId),
     refetchInterval: 5_000,
     refetchIntervalInBackground: false,

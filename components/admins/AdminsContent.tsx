@@ -13,9 +13,9 @@ import {
   eyebrow,
   h1,
   pill,
-  shimmerCard,
   sub,
 } from "@/lib/ui";
+import { AdminsSkeleton } from "./AdminsSkeleton";
 import { AdminsTable } from "./AdminsTable";
 
 export function AdminsContent({
@@ -33,7 +33,24 @@ export function AdminsContent({
   const [confirmAdmin, setConfirmAdmin] = useState<AdminUser | null>(null);
 
   if (loading || !admins) {
-    return <div className={shimmerCard} aria-busy="true" />;
+    return (
+      <>
+        <section className="mt-8 mb-[22px] flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
+          <div>
+            <div className={eyebrow}>Superadmin</div>
+            <h1 className={h1}>Admin accounts</h1>
+          </div>
+          <button
+            id="add-admin-btn"
+            className={btn("primary")}
+            onClick={onAdd}
+          >
+            ＋ Add admin
+          </button>
+        </section>
+        <AdminsSkeleton />
+      </>
+    );
   }
 
   async function handleConfirmDelete() {
