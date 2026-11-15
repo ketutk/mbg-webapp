@@ -242,7 +242,7 @@ export function SessionView({
             rec={rec}
             onShuffle={() => {
               setSeed((s) => s + 1);
-              showToast("Shuffled — only players tied on games and rest can change");
+              showToast("Shuffled — tried a fresh match combination");
             }}
             onAssignRecommended={(mode: "court" | "queue", teams: [Team, Team]) => {
               setAssignConfig({ mode, prefill: teams });

@@ -142,9 +142,9 @@ Pure, client-side, in `lib/match.ts`; computed from the fetched session.
 
 | ID | Requirement |
 |----|-------------|
-| FR-REC-1 | Needs ≥ 4 players, otherwise no recommendation. Ranking: fewest games → longest rest (smallest "last played" index) → seeded tie-break. |
+| FR-REC-1 | Needs ≥ 4 players, otherwise no recommendation. Strict game-count priority: players with the fewest games (`minCount`) are always prioritized first; within tied tiers, a bounded rest window prevents anyone waiting more than one extra game. |
 | FR-REC-2 | Players currently `ON_COURT` are excluded when at least 4 other players remain; otherwise the full ranking is used. |
-| FR-REC-3 | The four picked players are split into the pairing (of 3 possible) that repeats past partners the least; the seed also nudges this choice. **Shuffle** changes the seed (only tied players can change). |
+| FR-REC-3 | From eligible candidates, `recommend()` scores 4-player quartets and `2v2` splits to minimize exact-quartet repeats, single-game pod concentration, repeat partners, repeat court-mates (opponents), and unnecessary back-to-back games. **Shuffle** (`seed > 0`) rotates through the top distinct low-repeat combinations or splits. |
 | FR-REC-4 | The Next match card offers **Assign to court** and **Add to queue** (prefilled via `prefillFromRec`), plus a waiting list ordered by who plays next, and a "level" state when everyone has the same count. |
 | FR-REC-5 | Organisers only. Visitors never receive the data needed to compute it. |
 

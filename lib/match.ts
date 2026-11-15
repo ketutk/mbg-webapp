@@ -95,26 +95,259 @@ function rand(key: string, seed: number) {
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+const quartetKey = (ids: readonly string[]) => [...ids].sort().join("|");
 
-function partnerHistory(session: Session) {
-  const map = new Map<string, number>();
+interface InteractionHistory {
+  partner: Map<string, number>;
+  together: Map<string, number>;
+  quartet: Map<string, number>;
+}
+
+function interactionHistory(session: Session): InteractionHistory {
+  const partner = new Map<string, number>();
+  const together = new Map<string, number>();
+  const quartet = new Map<string, number>();
+
   for (const g of session.games) {
-    if (!g.teams) continue;
-    for (const [a, b] of g.teams) {
-      const k = pairKey(a, b);
-      map.set(k, (map.get(k) ?? 0) + 1);
+    const ids = g.playerIds;
+    if (ids.length === 4) {
+      const qk = quartetKey(ids);
+      quartet.set(qk, (quartet.get(qk) ?? 0) + 1);
+    }
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const pk = pairKey(ids[i], ids[j]);
+        together.set(pk, (together.get(pk) ?? 0) + 1);
+      }
+    }
+    if (g.teams) {
+      for (const [a, b] of g.teams) {
+        const pk = pairKey(a, b);
+        partner.set(pk, (partner.get(pk) ?? 0) + 1);
+      }
     }
   }
-  return map;
+
+  return { partner, together, quartet };
+}
+
+const MAX_CANDIDATES = 8;
+
+interface IndexedStat {
+  stat: PlayerStat;
+  cohort: number;
+}
+
+function combinations<T>(items: readonly T[], k: number): T[][] {
+  if (k === 0) return [[]];
+  if (items.length < k) return [];
+  const out: T[][] = [];
+  const chosen: T[] = [];
+  function walk(start: number) {
+    if (chosen.length === k) {
+      out.push([...chosen]);
+      return;
+    }
+    const need = k - chosen.length;
+    for (let i = start; i <= items.length - need; i++) {
+      chosen.push(items[i]);
+      walk(i + 1);
+      chosen.pop();
+    }
+  }
+  walk(0);
+  return out;
+}
+
+function groupByLast(tier: readonly PlayerStat[]): PlayerStat[][] {
+  const cohorts: PlayerStat[][] = [];
+  for (const s of tier) {
+    const prev = cohorts[cohorts.length - 1];
+    if (prev && prev[0].last === s.last) {
+      prev.push(s);
+    } else {
+      cohorts.push([s]);
+    }
+  }
+  return cohorts;
 }
 
 /**
- * Recommend the next doubles match so everyone ends up with the same number of games:
- *  1. fewest games played first
- *  2. then the player who has rested the longest (hasn't played for the most games)
- *  3. then a seeded random tie-break (change `seed` to shuffle ties)
- * Players currently ON_COURT (`busy`) are excluded when at least 4 other players remain.
- * The four picked players are split into teams that repeat past partners the least.
+ * Strictly honors game-count tiers while opening a bounded 2-cohort window
+ * whenever the oldest played cohort would otherwise trap the exact same pod.
+ * Any cohort smaller than the remaining slots is locked in first so no player
+ * ever waits more than one extra game.
+ */
+function buildCandidateSet(pool: readonly PlayerStat[]) {
+  const mandatory: IndexedStat[] = [];
+  let offset = 0;
+  let globalCohort = 0;
+
+  // Lock full count tiers strictly smaller than what we still need to reach 4.
+  while (mandatory.length < 4 && offset < pool.length) {
+    const tierCount = pool[offset].count;
+    let end = offset;
+    while (end < pool.length && pool[end].count === tierCount) end++;
+    const tier = pool.slice(offset, end);
+    const remaining = 4 - mandatory.length;
+
+    if (tier.length <= remaining) {
+      for (const c of groupByLast(tier)) {
+        for (const stat of c) mandatory.push({ stat, cohort: globalCohort });
+        globalCohort++;
+      }
+      offset = end;
+      continue;
+    }
+
+    const cohorts = groupByLast(tier);
+    let slotsLeft = remaining;
+    for (let i = 0; i < cohorts.length && slotsLeft > 0; i++) {
+      const c = cohorts[i];
+      const cohortId = globalCohort++;
+
+      if (c[0].last === -1) {
+        if (c.length >= slotsLeft) {
+          const flex = c.slice(0, MAX_CANDIDATES).map((stat) => ({
+            stat,
+            cohort: cohortId,
+          }));
+          return { mandatory, flex, slotsLeft, oldestCohort: -1, minFromOldest: 0 };
+        }
+        for (const stat of c) mandatory.push({ stat, cohort: cohortId });
+        slotsLeft -= c.length;
+        continue;
+      }
+
+      if (c.length < slotsLeft) {
+        for (const stat of c) mandatory.push({ stat, cohort: cohortId });
+        slotsLeft -= c.length;
+        continue;
+      }
+
+      const next = cohorts[i + 1];
+      const shouldWiden =
+        slotsLeft > 1 && next !== undefined && c.length <= Math.max(slotsLeft, 5);
+      if (!shouldWiden) {
+        const flex = c.slice(0, MAX_CANDIDATES).map((stat) => ({
+          stat,
+          cohort: cohortId,
+        }));
+        return { mandatory, flex, slotsLeft, oldestCohort: cohortId, minFromOldest: 0 };
+      }
+
+      const nextId = globalCohort++;
+      const minNext = Math.min(next.length, slotsLeft);
+      const room = Math.max(minNext, MAX_CANDIDATES - c.length);
+      const flex: IndexedStat[] = [
+        ...c.map((stat) => ({ stat, cohort: cohortId })),
+        ...next.slice(0, room).map((stat) => ({ stat, cohort: nextId })),
+      ];
+      return {
+        mandatory,
+        flex,
+        slotsLeft,
+        oldestCohort: cohortId,
+        minFromOldest: Math.ceil(slotsLeft / 2),
+      };
+    }
+    break;
+  }
+
+  return {
+    mandatory,
+    flex: [] as IndexedStat[],
+    slotsLeft: 0,
+    oldestCohort: -1,
+    minFromOldest: 0,
+  };
+}
+
+interface CandidateMatch {
+  quartet: PlayerStat[];
+  teams: [PlayerStat[], PlayerStat[]];
+  qKey: string;
+  splitKey: string;
+  score: number;
+}
+
+function evaluateMatchOption(
+  quartet: readonly IndexedStat[],
+  split: readonly [readonly IndexedStat[], readonly IndexedStat[]],
+  history: InteractionHistory,
+  lastGameIndex: number,
+  seed: number,
+): CandidateMatch {
+  const ids = quartet.map((q) => q.stat.player.id);
+  const qk = quartetKey(ids);
+  const t1Ids: [string, string] = [
+    split[0][0].stat.player.id,
+    split[0][1].stat.player.id,
+  ];
+  const t2Ids: [string, string] = [
+    split[1][0].stat.player.id,
+    split[1][1].stat.player.id,
+  ];
+  const s1 = [...t1Ids].sort().join("|");
+  const s2 = [...t2Ids].sort().join("|");
+  const splitKey = s1 < s2 ? `${s1}::${s2}` : `${s2}::${s1}`;
+
+  const quartetRepeats = history.quartet.get(qk) ?? 0;
+
+  let togetherRepeats = 0;
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      togetherRepeats += history.together.get(pairKey(ids[i], ids[j])) ?? 0;
+    }
+  }
+
+  const partnerRepeats =
+    (history.partner.get(pairKey(...t1Ids)) ?? 0) +
+    (history.partner.get(pairKey(...t2Ids)) ?? 0);
+
+  // Detect pod concentration from any single played game.
+  const byLastGame = new Map<number, number>();
+  let backToBackCount = 0;
+  let cohortScore = 0;
+  for (const item of quartet) {
+    cohortScore += item.cohort;
+    const last = item.stat.last;
+    if (last >= 0) {
+      byLastGame.set(last, (byLastGame.get(last) ?? 0) + 1);
+      if (last === lastGameIndex) backToBackCount++;
+    }
+  }
+  const maxSameGame = Math.max(0, ...byLastGame.values());
+  const podPenalty = maxSameGame >= 4 ? 35 : maxSameGame === 3 ? 12 : 0;
+
+  const score =
+    quartetRepeats * 60 +
+    podPenalty +
+    partnerRepeats * 14 +
+    togetherRepeats * 4 +
+    backToBackCount * 8 +
+    cohortScore * 5 +
+    rand(splitKey, seed === 0 ? 0 : 1) * 0.1;
+
+  return {
+    quartet: quartet.map((q) => q.stat),
+    teams: [
+      [split[0][0].stat, split[0][1].stat],
+      [split[1][0].stat, split[1][1].stat],
+    ],
+    qKey: qk,
+    splitKey,
+    score,
+  };
+}
+
+/**
+ * Recommend the next doubles match so everyone ends up with balanced game counts
+ * while mixing cohorts and avoiding repeated foursomes, partners, and opponents:
+ *  1. Strict priority for fewest games played (`count`).
+ *  2. Bounded rest window (oldest cohort is never skipped more than 1 extra game).
+ *  3. Within eligible candidates, minimize quartet/pod/partner/opponent repeats.
+ *  4. Clicking Shuffle (`seed > 0`) rotates through top distinct combinations.
  */
 export function recommend(
   session: Session,
@@ -123,6 +356,7 @@ export function recommend(
 ): Recommendation | null {
   if (session.players.length < 4) return null;
 
+  const history = interactionHistory(session);
   const ranked = getStats(session).sort(
     (a, b) =>
       a.count - b.count ||
@@ -130,29 +364,87 @@ export function recommend(
       rand(a.player.id, seed) - rand(b.player.id, seed),
   );
 
-  const available = busy.size ? ranked.filter((s) => !busy.has(s.player.id)) : ranked;
+  const available = busy.size
+    ? ranked.filter((s) => !busy.has(s.player.id))
+    : ranked;
   const pool = available.length >= 4 ? available : ranked;
 
-  const picked = pool.slice(0, 4).map((s) => s.player);
+  const { mandatory, flex, slotsLeft, oldestCohort, minFromOldest } =
+    buildCandidateSet(pool);
+
+  const flexCombos =
+    slotsLeft > 0 ? combinations(flex, slotsLeft) : ([[]] as IndexedStat[][]);
+
+  const validQuartets = flexCombos
+    .filter((combo) => {
+      if (minFromOldest <= 0) return true;
+      const countOldest = combo.filter((x) => x.cohort === oldestCohort).length;
+      return countOldest >= minFromOldest;
+    })
+    .map((combo) => [...mandatory, ...combo]);
+
+  const lastGameIndex = session.games.length - 1;
+  const evaluated: CandidateMatch[] = [];
+  for (const quartet of validQuartets) {
+    const [a, b, c, d] = quartet;
+    const splits: [readonly [IndexedStat, IndexedStat], readonly [IndexedStat, IndexedStat]][] = [
+      [
+        [a, b],
+        [c, d],
+      ],
+      [
+        [a, c],
+        [b, d],
+      ],
+      [
+        [a, d],
+        [b, c],
+      ],
+    ];
+    for (const split of splits) {
+      evaluated.push(
+        evaluateMatchOption(quartet, split, history, lastGameIndex, seed),
+      );
+    }
+  }
+
+  evaluated.sort((x, y) => x.score - y.score);
+
+  let chosen = evaluated[0];
+  if (seed > 0 && evaluated.length > 1) {
+    const bestPerQuartet: CandidateMatch[] = [];
+    const seenQ = new Set<string>();
+    const bestScore = evaluated[0].score;
+    for (const opt of evaluated) {
+      if (seenQ.has(opt.qKey)) continue;
+      seenQ.add(opt.qKey);
+      if (opt.score <= bestScore + 45 || bestPerQuartet.length < 4) {
+        bestPerQuartet.push(opt);
+      }
+      if (bestPerQuartet.length >= 8) break;
+    }
+
+    if (bestPerQuartet.length > 1) {
+      chosen = bestPerQuartet[seed % bestPerQuartet.length];
+    } else {
+      // Only one 4-player quartet is eligible; rotate among its team splits.
+      const distinctSplits: CandidateMatch[] = [];
+      const seenS = new Set<string>();
+      for (const opt of evaluated) {
+        if (!seenS.has(opt.splitKey)) {
+          seenS.add(opt.splitKey);
+          distinctSplits.push(opt);
+        }
+      }
+      chosen = distinctSplits[seed % distinctSplits.length];
+    }
+  }
+
+  const picked = chosen.quartet.map((s) => s.player);
   const pickedSet = new Set(picked.map((p) => p.id));
-  const [a, b, c, d] = picked;
-  const history = partnerHistory(session);
-
-  const options: [Team, Team][] = [
-    [[a.id, b.id], [c.id, d.id]],
-    [[a.id, c.id], [b.id, d.id]],
-    [[a.id, d.id], [b.id, c.id]],
-  ];
-  const score = ([t1, t2]: [Team, Team]) =>
-    (history.get(pairKey(...t1)) ?? 0) +
-    (history.get(pairKey(...t2)) ?? 0) +
-    rand(`${t1}${t2}`, seed) * 0.5;
-  const best = options.reduce((x, y) => (score(y) < score(x) ? y : x));
-
-  const byId = new Map(picked.map((p) => [p.id, p]));
   const teams: Recommendation["teams"] = [
-    [byId.get(best[0][0])!, byId.get(best[0][1])!],
-    [byId.get(best[1][0])!, byId.get(best[1][1])!],
+    [chosen.teams[0][0].player, chosen.teams[0][1].player],
+    [chosen.teams[1][0].player, chosen.teams[1][1].player],
   ];
 
   return {
