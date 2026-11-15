@@ -50,10 +50,13 @@ export const courtCard =
 export const courtCardEmpty =
   "rounded-[19px] border border-dashed border-[#cbe2f6] bg-[#fafdff] p-4";
 export const lockedHead = "bg-[#f4f7fa]";
-export const shimmerCard = cx(
-  card,
-  "mt-8 h-80 animate-shimmer bg-[linear-gradient(100deg,#fff_30%,#eef6fd_50%,#fff_70%)] bg-size-[200%_100%]",
-);
+export const skeleton =
+  "skeleton animate-[shimmer_1.4s_ease-in-out_infinite] rounded-lg " +
+  "bg-[linear-gradient(90deg,var(--color-skeleton)_0%,var(--color-skeleton-hi)_50%,var(--color-skeleton)_100%)] " +
+  "bg-[length:200%_100%]";
+export const skelBar = (w = "w-24", h = "h-3.5") => cx(skeleton, w, h);
+export const skelCircle = (size = "size-8") =>
+  cx(skeleton, "rounded-full", size);
 
 /* --------------------------------- headings -------------------------------- */
 export const eyebrow =

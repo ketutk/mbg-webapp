@@ -17,10 +17,10 @@ import {
   cardHead,
   cardTitle,
   pill,
-  shimmerCard,
   spinner,
   sub,
 } from "@/lib/ui";
+import { SessionsDirectorySkeleton } from "./SessionsDirectorySkeleton";
 import { SessionsFilterToolbar } from "./SessionsFilterToolbar";
 import { SessionsHero } from "./SessionsHero";
 import { SessionsTable } from "./SessionsTable";
@@ -65,7 +65,7 @@ export function SessionsDirectory({
   const { data, loading, fetching } = useSessionsList(filterParams);
 
   if (loading && !data) {
-    return <div className={shimmerCard} aria-busy="true" />;
+    return <SessionsDirectorySkeleton showHero={!currentSessionId} />;
   }
 
   if (!data) return null;

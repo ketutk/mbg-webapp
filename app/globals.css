@@ -12,6 +12,8 @@
   --color-warn-bg: #fff3e7;
   --color-ok: #2f8f7b;
   --color-ok-bg: #e3f6f1;
+  --color-skeleton: #e3eef9;
+  --color-skeleton-hi: #f2f8fe;
 
   --shadow-card: 0 12px 34px #397bb014;
 
@@ -56,5 +58,11 @@
   button:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
   }
 }

@@ -11,12 +11,12 @@ import {
   eyebrow,
   h1,
   pill,
-  shimmerCard,
   sub,
 } from "@/lib/ui";
 import { CourtCard } from "./CourtCard";
 import { VisitorPlayersSection } from "./VisitorPlayersSection";
 import { VisitorQueueSection } from "./VisitorQueueSection";
+import { VisitorViewSkeleton } from "./VisitorViewSkeleton";
 
 export function VisitorView({
   sessionId,
@@ -28,7 +28,14 @@ export function VisitorView({
   const { data: summary, error, loading } = useSessionSummary(sessionId);
 
   if (loading) {
-    return <div className={shimmerCard} aria-busy="true" />;
+    return (
+      <VisitorViewSkeleton
+        onBackToList={() => {
+          selectSession(null);
+          onBackToList();
+        }}
+      />
+    );
   }
 
   if (error || !summary) {

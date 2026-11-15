@@ -1,229 +1,353 @@
-# MBG v2 — SRD, Coding Rules & Implementation Plan
+# MBG — Software Requirements Document (as-built)
 
-Project: **MBG · Minggu Badminton Guys — Fair Match Planner**
-Baseline: Next.js 16.4.3 (App Router, `cacheComponents`, `partialPrefetching`), React 19.3, Tailwind v4, localStorage store.
-Target: Admin/Superadmin authentication, courts + queue, locked checklist, treasury, backed by PostgreSQL via Prisma, validated with Zod.
+**Product:** MBG · Minggu Badminton Guys — Fair Match Planner
+**Document status:** Updated to match the repository snapshot `mbg-webapp-main` (verified 2026-11-12). This replaces the earlier "SRD, Coding Rules & Implementation Plan" that described the v2 *plan*. All eight implementation phases of that plan are done, so this document describes the system **as it is built**, plus the coding rules the code actually follows.
 
-This document has three parts:
+Related documents in the repo:
 
-1. **Part A — Software Requirements Document (SRD)**
-2. **Part B — Coding Rules** (derived from the existing code, plus rules for the new layers)
-3. **Part C — Implementation Plan**
+| File | Purpose |
+|------|---------|
+| `SRD.md` (this file) | Requirements, architecture, folder structure, coding rules |
+| `PERFORMANCE_PLAN.md` | Plan to improve load performance (frame-first loading); written from the 2026-11-12 Lighthouse runs |
+| `AGENTS.md` | Auto-managed agent rules from `next dev`. Says this Next.js version differs from older versions: read `node_modules/next/dist/docs/` first |
+| `REFACTOR_PLAN.md`, `REFACTOR_NOTES.md` | History of the modularization + Zustand refactor and the oddities it deliberately preserved (summarised in §15) |
+
+## Contents
+
+1. Purpose & scope
+2. Users & roles
+3. Functional requirements
+4. Non-functional requirements
+5. Tech stack
+6. Project folder structure
+7. Data model
+8. Shared types & validation schemas
+9. API specification
+10. Client architecture & data flow
+11. UI specification
+12. Business rules & edge cases
+13. Coding rules
+14. Environment, scripts & deployment
+15. Known deviations, tech debt & open items
+16. Acceptance criteria
+17. Decision log
+18. Changes from the previous SRD
 
 ---
 
-## 0. Decisions (confirmed by review)
+## 1. Purpose & scope
 
-Your original request had a few places where two readings were possible. I proposed a default for each; the review comments confirmed most of them and changed A1, A2, A6 and A9. The table below is the **final, agreed** state and everything in this document follows it.
+MBG is a shared planner for a weekly badminton group. Organisers create **sessions** (a game day) with a roster, run **matches** on numbered **courts** with a **queue**, track a **games-played checklist** so everyone gets equal court time, and keep a **club treasury**. Players (visitors) can open a session read-only to see who is on court, what is queued next, and how many games each person has played.
 
-| # | Topic | What you said | Default used in this document |
-|---|-------|---------------|-------------------------------|
-| A1 | Who can manage sessions | Item 2: admin has full access on session and match. Review: *"admin can't do anything with session, only superadmin"*. | **Session management is Superadmin-only**: create, edit (name, date, court count), edit roster, delete. **Admin** can open any session and fully manage its **matches** (assign to court/queue, edit, finish, reorder, delete, tick, lock/unlock). |
-| A2 | What a visitor sees | "Visitor can only see how much they play." Review: default OK, **but visitors can also see the queue and the players on courts.** | Visitor sees the session list and, per session: **games played per player**, **who is on each court** (Team A vs Team B), and **the queue** in order. No checklist grid, history, recommendation, lock state or treasury. The public API returns only that data. |
-| A3 | Treasury "cash left" | Admin can add a *spent*; also wants to see cash left. | A balance needs money coming in, so entries have a **type: `INCOME` or `EXPENSE`**. "Add a spent" = an `EXPENSE` entry. `INCOME` is the minimal addition needed to compute a balance (contributions, opening balance). |
-| A4 | "Move it after admin assigns…" | Recommendation + checklist stay; the match moves there after assignment. | Reading: **assigning a match (court or queue) is what creates a checklist column** with its 4 players ticked. The recommendation card becomes a *shortcut feeding the two assignment actions* instead of "Start match". Page order becomes Courts → Queue → Next match → Games played. |
-| A5 | Blank "＋ Add game" | "Just 2 ways of assigning a match." | The blank **Add game button is removed**. Columns only come from court assignment or queue. The checklist remains editable (tick/untick) to correct mistakes. |
-| A6 | Queued matches and fairness | Default OK, **but flag queued matches so users can tell.** | A queued match **counts as played immediately** (its 4 players are ticked when queued), but it is **always flagged as "Queued"** everywhere a count or column is shown (checklist column header, per-player count hint, visitor list, waiting list), and the API exposes a separate `queued` number per player. The flag disappears when the match is moved onto a court. |
-| A7 | Treasury delete | Superadmin can edit/delete treasury data. | **Soft delete** (`deletedAt`) for treasury entries, because it is financial data. Deleted entries are excluded from the balance. Hard delete can be swapped in with one line. |
-| A8 | Currency | Confirmed: **IDR**. | **IDR**, whole rupiah stored as `Int` (no decimals). |
-| A9 | Tooling | Review: **bcrypt for hashing, Prisma 6.** | **Prisma 6 (pin `~6.19`)** with the classic `prisma-client-js` generator, `datasource url = env("DATABASE_URL")`, no driver adapter, `.env` read automatically by the CLI. **`bcrypt`** (+ `@types/bcrypt`) for password hashing, cost 12. Only extra dev tool: `tsx` to run the TypeScript seed. No auth library, no data-fetching library. |
+In scope: public read-only view, organiser accounts (Admin / Superadmin), sessions + roster, courts + queue + locked checklist, fairness-based recommendation, treasury, admin-account management, PostgreSQL persistence.
+
+Out of scope: player accounts, online payments, notifications, multi-club tenancy, i18n (UI is English), file uploads, websockets (the client polls).
 
 ---
 
-# PART A — SOFTWARE REQUIREMENTS DOCUMENT
-
-## A.1 Purpose & scope
-
-MBG v1 is a single-device planner: sessions, a roster, a "games played" checklist, and a fairness-based next-match recommendation, all in `localStorage`.
-
-MBG v2 turns it into a shared, multi-user system:
-
-- A **public read-only view** so players can check how many games they have played.
-- **Superadmin** accounts who manage sessions, admins and the treasury, and **Admin** accounts who run matches (courts, queue, checklist) and add treasury entries.
-- Persistent storage in **PostgreSQL**.
-
-Out of scope for v2: player accounts, payments/online money, notifications, multi-club tenancy, i18n (UI stays English), file uploads, real-time websockets (polling is used).
-
-## A.2 Users & roles
+## 2. Users & roles
 
 | Role | Who | How created |
 |------|-----|-------------|
 | **Visitor** | Anyone, not logged in | — |
-| **Admin** | Trusted organiser | Created by a Superadmin |
-| **Superadmin** | Owner | Created by seed script only (never via the UI/API) |
+| **Admin** | Trusted organiser | Created by a Superadmin in the UI (`/admins`) |
+| **Superadmin** | Owner | Seed script only (`npm run db:seed`); never via UI/API |
 
 ### Permission matrix
 
 | Capability | Visitor | Admin | Superadmin |
 |------------|:------:|:-----:|:----------:|
-| See session list; per-player games-played counts; courts and queue | ✅ | ✅ | ✅ |
-| See checklist grid, history, recommendation | ❌ | ✅ | ✅ |
-| **Create / edit session** (name, date, court count, roster) | ❌ | ❌ | ✅ |
-| **Delete session** | ❌ | ❌ | ✅ |
-| Assign match to court / queue; edit; finish; reorder queue | ❌ | ✅ | ✅ |
+| List **open** sessions; per-session public summary (courts, queue, games played) | ✅ | ✅ | ✅ |
+| See **closed** sessions (list + summary) | ❌ | ✅ | ✅ |
+| **Open / close** a session (status toggle) | ❌ | ✅ | ✅ |
+| Create session; edit name, date, court count; edit roster; delete session | ❌ | ❌ | ✅ |
+| Open the full session (detail, checklist, history, recommendation) | ❌ | ✅ | ✅ |
+| Assign match to court/queue; edit players; finish; promote; reorder; delete; clear all matches | ❌ | ✅ | ✅ |
 | Tick/untick checklist; lock/unlock a column | ❌ | ✅ | ✅ |
-| Delete a match; clear all matches of a session | ❌ | ✅ | ✅ |
-| View treasury (balance + entries) | ❌ | ✅ | ✅ |
-| Add treasury entry (spent / income) | ❌ | ✅ | ✅ |
-| **Edit / delete treasury entry** | ❌ | ❌ | ✅ |
-| **Add admin / soft-delete admin / reset admin password** | ❌ | ❌ | ✅ |
+| View treasury; add entry (income / spent) | ❌ | ✅ | ✅ |
+| Edit / soft-delete treasury entry | ❌ | ❌ | ✅ |
+| Add admin; soft-delete admin; reset admin password | ❌ | ❌ | ✅ |
 | Log in / log out / change own password | — | ✅ | ✅ |
 
-Authorization is **always enforced on the server**. Hiding buttons in the UI is a convenience only.
+Authorization is **always enforced on the server** (`route({ roles })`). Hiding a button in the UI is a convenience only.
 
-## A.3 Functional requirements
+---
 
-### A.3.1 Authentication & accounts (`FR-AUTH`)
+## 3. Functional requirements
 
-| ID | Requirement |
-|----|-------------|
-| FR-AUTH-1 | Admins log in with **username + password**. |
-| FR-AUTH-2 | On success the server sets an **opaque random token** in a cookie that is `HttpOnly`, `SameSite=Strict`, `Path=/`, `Secure` in production, `Max-Age` 7 days. The token is never readable by JavaScript and never returned in a response body. |
-| FR-AUTH-3 | The server stores only the **SHA-256 hash** of the token (`AuthToken` table). Logout deletes the row and clears the cookie. |
-| FR-AUTH-4 | The client learns who is logged in through `GET /api/auth/me` (`{ user: { id, username, role } \| null }`). The client never decodes the token. |
-| FR-AUTH-5 | Passwords are hashed with **bcrypt** (cost 12). Plain passwords are never stored or logged. Because bcrypt only uses the first **72 bytes**, passwords are limited to 72 bytes (validated by Zod on create, reset and login). |
-| FR-AUTH-6 | Wrong credentials return one generic message ("Invalid username or password") for unknown user, wrong password, and deleted user. |
-| FR-AUTH-7 | **Brute-force protection:** after 5 consecutive failures an account is locked for 15 minutes (`failedAttempts`, `lockedUntil`); a successful login resets the counter. |
-| FR-AUTH-8 | Soft-deleting an admin **immediately revokes all their tokens** and blocks login. |
-| FR-AUTH-9 | A user can change their own password (requires current password); this revokes their other tokens. |
-| FR-AUTH-10 | Superadmin accounts are created only by the seed script from env vars. The API can only create `ADMIN`. |
-| FR-AUTH-11 | Every state-changing request (`POST/PUT/PATCH/DELETE`) must pass a CSRF guard: `Origin` host must equal `Host`, and `Content-Type` must be `application/json` (when a body exists). |
+Requirement IDs are kept stable from the earlier SRD so old references still work.
 
-### A.3.2 Admin management — Superadmin only (`FR-ADM`)
+### 3.1 Authentication & accounts (`FR-AUTH`)
 
 | ID | Requirement |
 |----|-------------|
-| FR-ADM-1 | List admins (active and soft-deleted, with a visible "Deleted" state). |
-| FR-ADM-2 | Create an admin: username (3–32, `[a-z0-9_.-]`, stored lowercase, unique) + initial password (min 10 chars). |
-| FR-ADM-3 | **Soft delete** an admin → sets `deletedAt`. The username stays reserved. A superadmin can never delete themselves or another superadmin. |
-| FR-ADM-4 | Reset an admin's password (revokes that admin's tokens). |
-| FR-ADM-5 | Data created by a soft-deleted admin (`createdById`) is untouched. |
+| FR-AUTH-1 | Admins log in with **username + password** (`POST /api/auth/login`). |
+| FR-AUTH-2 | Success sets an opaque random token in the cookie **`mbg_session`**: `HttpOnly`, `SameSite=Strict`, `Path=/`, `Secure` in production, `Max-Age` 7 days. The token is never readable by JavaScript and never returned in a body. Token = `crypto.randomBytes(32)` as base64url. |
+| FR-AUTH-3 | Only the **SHA-256 hash** of the token is stored (`AuthToken.tokenHash`). Logout deletes the row and clears the cookie. Expired tokens are deleted when seen. |
+| FR-AUTH-4 | The client learns the current user from `GET /api/auth/me` → `{ user: { id, username, role } \| null }`. |
+| FR-AUTH-5 | Passwords are hashed with **bcrypt, cost 12**. Max **72 bytes** (bcrypt limit) enforced by Zod; minimum 10 characters for new passwords. |
+| FR-AUTH-6 | Unknown user, wrong password and soft-deleted user all return the same `401 UNAUTHENTICATED` "Invalid username or password". A dummy bcrypt compare keeps timing similar. |
+| FR-AUTH-7 | **Lockout:** 5 consecutive failures lock an existing, active account for 15 minutes (`failedAttempts`, `lockedUntil`, HTTP 429 `TOO_MANY_ATTEMPTS`). A successful login resets the counter. If a lock has expired the next failure counts as attempt 1. |
+| FR-AUTH-8 | Soft-deleting an admin deletes all their tokens at once; the user is also re-checked (`deletedAt`) on every request. |
+| FR-AUTH-9 | A user can change their own password (`POST /api/auth/password`, needs current password). All **other** tokens of that user are revoked; the current one stays. |
+| FR-AUTH-10 | The API can only create `ADMIN`. `SUPERADMIN` exists only through the seed script (env vars). |
+| FR-AUTH-11 | **CSRF guard** on every non-GET request: an `Origin` header must be present and its host must equal `x-forwarded-host` (or `host`); routes that declare a body schema also require `Content-Type: application/json`. Failures → 403 `FORBIDDEN`. |
 
-### A.3.3 Sessions (`FR-SES`)
-
-| ID | Requirement |
-|----|-------------|
-| FR-SES-1 | **Superadmin only.** Create session: name (1–60, defaults to `Game day <date>` as today), date (`yyyy-mm-dd`, no time), **court count** (1–8, default 1), initial roster (one name per line, same `parseNames` rules as today). |
-| FR-SES-2 | **Superadmin only.** Edit session name, date, court count. **Court count cannot be lowered below the highest occupied court number** (409 `COURT_OCCUPIED`). |
-| FR-SES-3 | **Superadmin only.** Edit roster keeps today's behaviour: same name (case-insensitive) keeps its id and games; removed players lose their ticks and are removed from any match. Affected columns are unlocked. Max 60 players, names 1–40 chars, unique per session. |
-| FR-SES-4 | Delete session — **Superadmin only**; cascades to players, matches, ticks. |
-| FR-SES-6 | Admins never see session create/edit/delete/roster controls; the API returns 403. |
-| FR-SES-5 | The session list is public (id, name, date only). The selected session is remembered per device (as today). |
-
-### A.3.4 Courts, queue & assignment (`FR-MAT`)
-
-A "match" is the existing `Game`. Terminology in UI: **match**; in code/DB: `Game`.
+### 3.2 Admin management — Superadmin only (`FR-ADM`)
 
 | ID | Requirement |
 |----|-------------|
-| FR-MAT-1 | A session has `courtCount` courts, numbered 1…N. A court is **empty** or holds exactly one match with status `ON_COURT`. |
-| FR-MAT-2 | There are **exactly two ways** to create a match: **(a) assign directly to an empty court**, **(b) add to the queue** ("set the next match"). |
-| FR-MAT-3 | An assignment requires **4 distinct players** from the roster split into **Team A (2) and Team B (2)**. |
-| FR-MAT-4 | The assignment dialog can be **prefilled from the recommendation** (teams included) and then adjusted, or filled manually. |
-| FR-MAT-5 | A player cannot be placed on a court while already `ON_COURT` in another court (409 `PLAYER_BUSY`). Adding a busy player to the **queue** is allowed (they are "next") but the dialog shows a "currently on court N" hint. |
-| FR-MAT-6 | The queue is ordered. Admin can **reorder** (move up/down), **edit players**, or **remove** a queued match. |
-| FR-MAT-7 | **Finish match**: an `ON_COURT` match becomes `DONE`, its court becomes empty. An empty court offers **Assign players** and, if the queue is not empty, **Play next in queue** (moves the first queued match onto that court). No auto-promotion. |
-| FR-MAT-8 | Admin can **edit players/teams** of a queued or on-court match (e.g. substitution after injury). |
-| FR-MAT-9 | Admin can delete any match (any status) and clear all matches of a session. |
-| FR-MAT-10 | Every match belongs to the checklist, ordered by creation (`seq`). A player's **games played** = number of the session's matches they are ticked in, **regardless of status** (A6). |
-| FR-MAT-11 | **Queued flag (A6):** a match in `QUEUED` status is shown with a **"Queued"** pill wherever it appears in the checklist/history, each player's count shows a small `+N queued` hint when `N > 0`, and the public summary exposes `queued` per player. |
+| FR-ADM-1 | List all accounts (active and soft-deleted), ordered by role then creation date. |
+| FR-ADM-2 | Create an admin: username (3–32 chars, `[a-z0-9_.-]`, trimmed + lowercased, unique) and password (10–72 bytes). Duplicate username → 409 `NAME_TAKEN` (soft-deleted names stay reserved). |
+| FR-ADM-3 | **Soft delete** (`deletedAt`) and revoke tokens in one transaction. Deleting yourself or a superadmin → 403. Deleting an already-deleted admin is a no-op. |
+| FR-ADM-4 | Reset an active account's password (also clears `failedAttempts`/`lockedUntil` and revokes that account's tokens). |
+| FR-ADM-5 | Data created by a soft-deleted admin is untouched. |
 
-### A.3.5 Recommendation (kept) (`FR-REC`)
+### 3.3 Sessions (`FR-SES`)
 
 | ID | Requirement |
 |----|-------------|
-| FR-REC-1 | Keep the current algorithm in `lib/match.ts` (fewest games → longest rest → seeded tie-break → partner-repeat avoidance → Shuffle). It stays **pure and client-side**, computed from the fetched session. |
-| FR-REC-2 | **New:** players currently `ON_COURT` are excluded from the recommended four **when at least 4 other players remain**; otherwise fall back to the full ranking. Implemented as an optional `busy` set argument. |
-| FR-REC-3 | The Next match card replaces "Start match · tick 4 players" with two actions: **Assign to court** (opens the dialog on the court picker, prefilled) and **Add to queue** (prefilled). Shuffle and the waiting list stay. |
-| FR-REC-4 | Admin only. Visitors never receive the data needed to compute it. |
+| FR-SES-1 | **Superadmin** creates a session: name (1–60, defaults to `Game day <yyyy-mm-dd>` in the dialog), date (`yyyy-mm-dd`, no time), court count (1–8, default 1), status (`OPEN` default / `CLOSED`), roster (one name per line, max 60 names, 1–40 chars, de-duplicated case-insensitively). |
+| FR-SES-2 | **Superadmin** edits name, date, court count. Court count cannot go below the highest occupied court (409 `COURT_OCCUPIED`). |
+| FR-SES-3 | **Superadmin** edits the roster. Same name (case-insensitive) keeps its player id and games. Removed players lose their ticks; every game they were in is **unlocked** and its team split cleared. New players are appended; order follows the pasted order. |
+| FR-SES-4 | **Superadmin** deletes a session (cascade to players, matches, ticks). |
+| FR-SES-5 | **Any organiser** (Admin or Superadmin) can toggle the session **status** (`OPEN` ↔ `CLOSED`). Any other field in the same PATCH from an Admin → 403. |
+| FR-SES-6 | **Visibility:** `CLOSED` sessions are hidden from visitors. The list excludes them (visitors always get `status = OPEN`, counts exclude closed) and `GET /summary` returns 403 `SESSION_CLOSED`. |
+| FR-SES-7 | **Session list** (`GET /api/sessions`): filters `from`, `to` (`yyyy-mm-dd`), `status` (`ALL`/`OPEN`/`CLOSED`, organisers only), `q` (name contains, case-insensitive); pagination `page`, `pageSize` (clamped 5–100, default 10); ordered by date desc then creation desc; returns `openCount` / `closedCount` for the current date+name filter. Each item has `courtCount`, `playerCount`, `gameCount`. |
+| FR-SES-8 | The selected session id is a **per-device preference** stored in `localStorage` key `mbg-current-v2` and synced across tabs through the `storage` event. A non-authoritative UI boot hint (`{ role: "organiser" \| "visitor" }`) is stored in `localStorage` key `mbg-boot-v1` strictly to pick which queries `QueryProvider` prefetches in parallel on initial load; never used for access control or server trust. |
 
-### A.3.6 Checklist table & column locking (`FR-CHK`)
+### 3.4 Courts, queue & assignment (`FR-MAT`)
 
-| ID | Requirement |
-|----|-------------|
-| FR-CHK-1 | The "Games played" table stays: rows = players, columns = matches (G1…Gn), checkbox per cell, count per player, header shows `ticked/total`. |
-| FR-CHK-2 | Each column has a persisted **`locked`** flag. A column is **locked automatically** when it is created by assignment (4 ticks) and **whenever a tick/untick leaves it with exactly 4 ticks**. |
-| FR-CHK-3 | A locked column's checkboxes are **disabled** and the header shows a lock icon button. Clicking it **unlocks** (a lock button also exists to re-lock any column manually). |
-| FR-CHK-4 | The **server rejects** tick changes on a locked column (409 `GAME_LOCKED`); the UI state is only a convenience. |
-| FR-CHK-5 | Tick requests are **idempotent** (`PUT … { checked: true \| false }`, not "toggle") so double-taps and two admins cannot invert each other. |
-| FR-CHK-6 | Any manual tick change sets every player's `team` in that match to null (team split no longer reliable) — same as v1. |
-| FR-CHK-7 | Editing a match through the assignment dialog is an explicit action and is allowed on a locked column; the column re-locks if it ends with 4 ticks. |
-| FR-CHK-8 | Remove-column "×" stays (admin). Confirm with `window.confirm` as in History today. |
-| FR-CHK-9 | Columns of `QUEUED` matches show a **"Queued"** pill in the header and tinted cells; the player's count badge shows `+N queued` when relevant. Once the match goes on court the flag is removed. |
-
-### A.3.7 Treasury (`FR-TRS`)
-
-Treasury is **club-wide** (not per session). Admin and superadmin only.
+A "match" is a `Game` in code and DB.
 
 | ID | Requirement |
 |----|-------------|
-| FR-TRS-1 | Screen shows **cash left** (balance = Σ income − Σ expense of non-deleted entries), plus total income and total expense. |
-| FR-TRS-2 | Admin/superadmin can **add an entry**: **type** (`EXPENSE` default / `INCOME`), **amount** (whole IDR, 1 … 1,000,000,000), **purpose/information** (1–200 chars), **date** (`yyyy-mm-dd`, no time; defaults to today). |
-| FR-TRS-3 | List entries newest date first (ties: newest created first), with type, date, purpose, amount, and who added it. |
-| FR-TRS-4 | **Superadmin only:** edit any field of an entry; soft-delete an entry. The UI hides these controls for admins; the API returns 403. |
-| FR-TRS-5 | Amounts display with `Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })`. |
-| FR-TRS-6 | Balance is always computed on the server (aggregate query), never trusted from the client. |
+| FR-MAT-1 | A session has `courtCount` courts numbered 1…N. A court is empty or holds exactly one `ON_COURT` match (DB unique `(sessionId, courtNumber)`). |
+| FR-MAT-2 | Exactly **two ways** to create a match: **assign to an empty court** or **add to the queue** (`POST /sessions/:id/games`, `target: { type: "court" \| "queue" }`). There is no blank "add game". |
+| FR-MAT-3 | A match has **4 distinct roster players** split into Team A (2) and Team B (2). Validated by Zod and by roster membership on the server. |
+| FR-MAT-4 | The assign dialog can be prefilled from the recommendation and adjusted. The same dialog edits an existing match. |
+| FR-MAT-5 | Court assignment checks: court exists (≤ `courtCount`, else 400), court free (409 `COURT_OCCUPIED`), no player already `ON_COURT` elsewhere (409 `PLAYER_BUSY`). **Queue** assignment skips the busy check; the dialog still shows a "currently on court N" hint. |
+| FR-MAT-6 | The queue is ordered by `queueOrder` (1…n, compacted after every removal/promotion). Organisers can reorder (▲ ▼ → `PUT /sessions/:id/queue`, must list every queued id exactly once), edit players, or remove a queued match. |
+| FR-MAT-7 | **Promote** (`POST /games/:id/start`, body `{ courtNumber }`): `QUEUED → ON_COURT` with the same court/busy checks; non-queued → 409 `INVALID_STATE`. No auto-promotion. An empty court card shows **Play next in queue** when the queue is not empty. |
+| FR-MAT-8 | **Finish** (`POST /games/:id/finish`): `ON_COURT → DONE`, `courtNumber = null`, `finishedAt` set; ticks and lock unchanged; otherwise 409 `INVALID_STATE`. |
+| FR-MAT-9 | **Edit players** (`PATCH /games/:id`, `{ teams }`) replaces the match's player rows and locks it. For an `ON_COURT` match the busy check ignores the match being edited. |
+| FR-MAT-10 | Delete a match in any status; clear all matches of a session. Queue order compacts after deleting a queued match. |
+| FR-MAT-11 | **Games played** for a player = number of the session's matches they are ticked in, **regardless of status** (queued matches count immediately). A separate `queued` number says how many of those are still `QUEUED`. |
+| FR-MAT-12 | **Queued flag:** a queued match always shows a **"Queued"** pill (queue list, checklist column header, visitor queue) and each player's count shows `(+N queued)` when N > 0. |
+| FR-MAT-13 | Match numbering in the UI ("Game n") follows creation order (`seq`, unique per session; allocation retries once on a unique-constraint race). |
 
-### A.3.8 Visitor view (`FR-VIS`)
+### 3.5 Recommendation (`FR-REC`)
+
+Pure, client-side, in `lib/match.ts`; computed from the fetched session.
 
 | ID | Requirement |
 |----|-------------|
-| FR-VIS-1 | Without login, the app shows the session picker and three read-only blocks: **Courts** (each court: empty, or Team A vs Team B), **Queue** (ordered next matches, flagged "Queued"), and **Games played** (avatar, name, count, `+N queued` hint, sorted by count then name). |
-| FR-VIS-2 | Data comes from `GET /api/sessions/:id/summary` only (shape in A.6). It contains player names and ids, counts, and court/queue assignments — never `locked`, never history of finished matches, never roster internals beyond that. |
-| FR-VIS-3 | The header offers an unobtrusive **Admin login** button. |
+| FR-REC-1 | Needs ≥ 4 players, otherwise no recommendation. Ranking: fewest games → longest rest (smallest "last played" index) → seeded tie-break. |
+| FR-REC-2 | Players currently `ON_COURT` are excluded when at least 4 other players remain; otherwise the full ranking is used. |
+| FR-REC-3 | The four picked players are split into the pairing (of 3 possible) that repeats past partners the least; the seed also nudges this choice. **Shuffle** changes the seed (only tied players can change). |
+| FR-REC-4 | The Next match card offers **Assign to court** and **Add to queue** (prefilled via `prefillFromRec`), plus a waiting list ordered by who plays next, and a "level" state when everyone has the same count. |
+| FR-REC-5 | Organisers only. Visitors never receive the data needed to compute it. |
 
-### A.3.9 Rendering & SEO (`FR-RND`)
+### 3.6 Checklist & column locking (`FR-CHK`)
 
 | ID | Requirement |
 |----|-------------|
-| FR-RND-1 | All UI is **client-rendered**: `page.tsx` files are thin server components that export metadata and render one `"use client"` root component, exactly as `app/page.tsx` → `MatchApp` does today. |
-| FR-RND-2 | Server code is limited to Route Handlers under `app/api/**` and `lib/server/**`. No Server Actions, no server-rendered data. |
-| FR-RND-3 | SEO stays on `/`: metadata, JSON-LD, `robots.ts`, `sitemap.ts`, `manifest.ts` unchanged. `/treasury` and `/admins` are `noindex`; `robots.ts` disallows `/api`, `/treasury`, `/admins`. |
-| FR-RND-4 | The loading state keeps the existing shimmer skeleton (`aria-busy`). |
+| FR-CHK-1 | "Games played" table: rows = players (sticky first column), columns = matches (G1…Gn), a checkbox per cell, per-player count. |
+| FR-CHK-2 | Each match has a persisted `locked` flag. It is **locked on creation** (assign / edit) and **auto-locked whenever a manual tick leaves exactly 4 ticks**; any other tick count leaves it unlocked. |
+| FR-CHK-3 | A locked column's checkboxes are disabled and the header shows a lock button that unlocks it (and a button to re-lock). |
+| FR-CHK-4 | The **server rejects** tick changes on a locked match (409 `GAME_LOCKED`). |
+| FR-CHK-5 | Ticks are **idempotent**: `PUT /games/:id/players/:playerId` with `{ checked: boolean }`, not a toggle. |
+| FR-CHK-6 | Any manual tick change sets every player's `team` in that match to null (team split no longer reliable). |
+| FR-CHK-7 | Columns can be removed (confirm dialog) and all matches can be cleared (confirm dialog). |
+| FR-CHK-8 | Ticks, lock/unlock, finish, promote, reorder, remove and clear are **optimistic** with rollback and a toast on failure (§10.3). |
 
-## A.4 Non-functional requirements
+### 3.7 Treasury (`FR-TRS`)
+
+Treasury is **club-wide** (not per session). Admin and Superadmin only.
+
+| ID | Requirement |
+|----|-------------|
+| FR-TRS-1 | Dashboard shows **all-time cash left** (Σ income − Σ expense of non-deleted entries) with an in/out ratio bar, **period income**, **period spent** (each with a transaction count) and **period net flow** for the current filter. |
+| FR-TRS-2 | A **6-month cashflow chart** (income vs expense per month, oldest → newest, anchored on the month of the newest entry). Clicking a month filters the list to it; clicking it again clears the filter. |
+| FR-TRS-3 | Filters: period preset (*All time, This month, Last month, Last 30d, Last 90d, This year, By month, Custom range*), type (*All / Income / Expense*), text search on purpose. Entries are **server-paginated** (page sizes 10 / 25 / 50, default 10), newest date first, ties by newest created. |
+| FR-TRS-4 | Add entry (Admin + Superadmin): type (`EXPENSE` default / `INCOME`), amount (whole IDR, 1 – 1,000,000,000), purpose (1–200), date (`yyyy-mm-dd`, defaults to today). Buttons: **＋ Add spent**, **＋ Add income**. |
+| FR-TRS-5 | **Superadmin only:** edit any field; **soft-delete** (`deletedAt`, `deletedById`). Deleted entries are excluded from every total and list. Edits record `updatedById`. |
+| FR-TRS-6 | Amounts display with `Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })` (`formatIDR`). |
+| FR-TRS-7 | All sums are computed on the server (aggregate queries); the client never computes the balance. |
+
+### 3.8 Visitor view (`FR-VIS`)
+
+| ID | Requirement |
+|----|-------------|
+| FR-VIS-1 | Logged-out `/` shows a hero ("Play fair. Play more."), a card grid of **open** sessions (3 columns → 2 → 1; page size 9; a name search appears when there are more than 3 open sessions or a search is active), and an "Admin login" action in the empty state. |
+| FR-VIS-2 | Opening a session shows three read-only blocks: **Courts** (each court empty or Team A vs Team B), **Queue** (ordered, "Queued" pills), **Games played** (avatar, name, count, `(+N queued)`; sorted by fewest games first, then name; players who are behind the leader are highlighted). |
+| FR-VIS-3 | Data comes only from `GET /api/sessions/:id/summary` (names, ids, counts, courts, queue). Never `locked`, finished-match history or treasury. |
+| FR-VIS-4 | If the session was closed or removed, a "Session unavailable" card offers "← Back to all sessions". |
+
+### 3.9 Rendering & SEO (`FR-RND`)
+
+| ID | Requirement |
+|----|-------------|
+| FR-RND-1 | UI is **client-rendered**: `app/(shell)/**/page.tsx` are thin server components that render one `"use client"` root (`MatchApp`, `TreasuryApp`, `AdminsApp`). Data is fetched in the browser with TanStack Query (§10). |
+| FR-RND-2 | Server code lives in Route Handlers (`app/api/**`) and `lib/server/**`. No Server Actions; no server-rendered data. |
+| FR-RND-3 | SEO is for `/` only: root metadata, Open Graph/Twitter, JSON-LD (`WebApplication`), `robots.ts`, `sitemap.ts` (only `/`), `manifest.ts`. `/treasury` and `/admins` export `robots: { index: false, follow: false }`; `robots.ts` disallows `/api/`, `/treasury`, `/admins`. |
+| FR-RND-4 | While data loads, frame-first shaped skeletons (`SkeletonRegion` with `aria-busy="true"` and `SkeletonBar` / `skelCircle` inside static titles and card headers) are rendered immediately, including in `AppHeader` auth slots. |
+
+---
+## 4. Non-functional requirements
 
 | ID | Area | Requirement |
 |----|------|-------------|
-| NFR-1 | Security | All inputs validated with Zod on the server; the same schemas validate forms on the client. Prisma parameterised queries only (no raw SQL with string interpolation). |
-| NFR-2 | Security | Cookie flags per FR-AUTH-2; `Cache-Control: no-store` on every `/api` response; generic auth errors; no stack traces to clients. |
-| NFR-3 | Security | Public endpoints return the minimum data (A2). Role is re-checked on **every** request from the DB (token → user, `deletedAt` null). |
-| NFR-4 | Freshness | Client polls the active session every **5 s** (admin) / **10 s** (visitor) while the tab is visible, and refetches on window focus and after every mutation. |
-| NFR-5 | Responsiveness | Checkbox ticks and court actions use **optimistic updates** with rollback + toast on failure. |
-| NFR-6 | Integrity | Multi-row changes (assignment, finish, promote, reorder, roster edit) run in **one Prisma transaction**. Unique constraints back the rules (`(sessionId, courtNumber)`, `(sessionId, seq)`). |
-| NFR-7 | Mobile | Same breakpoints as today (`max-[860px]`); tap targets ≥ 20 px for checkboxes; designed for phones at the court. |
-| NFR-8 | Accessibility | Keep existing patterns: `aria-label` on icon buttons, `sr-only` labels, `role="status"` toast, `aria-busy` skeletons, modal Esc-to-close. |
-| NFR-9 | Quality | `npm run lint` and `tsc --noEmit` clean; no `any`. |
-| NFR-10 | Deployability | Config only through env vars (`DATABASE_URL`, `SUPERADMIN_USERNAME`, `SUPERADMIN_PASSWORD`). Works on Node runtime (required by `cacheComponents` and Prisma). |
+| NFR-1 | Security | All server input is validated with Zod; the same schemas validate the forms in the browser. Prisma parameterised queries only; no raw SQL. |
+| NFR-2 | Security | `Cache-Control: no-store` on every `/api` response; generic auth errors; unexpected errors return a generic `INTERNAL_ERROR` (details only in the server log). |
+| NFR-3 | Security | Public endpoints return the minimum data. The role is re-checked from the database on **every** request (token → user, `deletedAt` null, not expired). |
+| NFR-4 | Freshness | The client polls while the tab is visible: session detail every **5 s**, session summary every **10 s**, session list every **10 s**; it also refetches on window focus (`staleTime` 2 s) and after every mutation. |
+| NFR-5 | Responsiveness | Court/queue/tick/lock actions are **optimistic** with rollback and a toast on failure; every action button shows an inline spinner while busy. |
+| NFR-6 | Integrity | Multi-row changes (assign, edit, promote, finish, reorder, delete + queue compaction, roster replace, tick, password change, admin delete) run in **one Prisma transaction**. Unique constraints back the rules: `(sessionId, courtNumber)`, `(sessionId, seq)`, `(sessionId, nameKey)`. |
+| NFR-7 | Mobile | Designed for phones at the court. Primary breakpoint `max-[860px]`; secondary `max-[960px]`, `max-[600px]`, `max-[420px]`. |
+| NFR-8 | Accessibility | `aria-label` on icon buttons, `sr-only` labels, `role="status"` toast, `aria-busy` placeholders, `role="dialog"` + `aria-modal` + Esc-to-close dialogs, `aria-labelledby` ↔ heading `id` pairs on sections. |
+| NFR-9 | Quality | `npm run lint`, `npx tsc --noEmit`, `npm run build` must pass; no `any`. There is **no automated test suite**; verification is manual (§16). |
+| NFR-10 | Deployability | Configuration only through env vars (§14). Node runtime (required by Prisma and `cacheComponents`). Built for Vercel (`vercel-build`). |
+| NFR-11 | Performance | Mobile Lighthouse (Moto G Power, Slow 4G) targets: Performance ≥ 90 on `/` and `/treasury`, CLS < 0.1, LCP ≤ 2.5 s, TBT < 200 ms. **Baseline on 2026-11-12:** `/` = 62 (CLS 0.931, LCP 3.3 s, TBT 210 ms), `/treasury` = 89 (CLS 0.009, LCP 3.3 s, TBT 130 ms). The plan to close the gap is `PERFORMANCE_PLAN.md`. |
 
-## A.5 Data model (Prisma, PostgreSQL)
+---
 
-Naming mirrors the existing TypeScript types (`Session`, `Player`, `Game`). The login-token table is called `AuthToken` to avoid confusion with a badminton `Session`.
+## 5. Tech stack
+
+| Layer | Choice (as in `package.json`) |
+|-------|-------------------------------|
+| Framework | **Next.js 16.4.3** (App Router, Turbopack, `cacheComponents: true`, `partialPrefetching: true`, `experimental.agentFeedback: true`) |
+| UI | **React 19.3.0**, **Tailwind CSS v4** (via `@tailwindcss/turbopack` rule in `next.config.ts`; tokens in `@theme`) |
+| Language | **TypeScript 5**, `strict`, path alias `@/*` → repo root |
+| Server state | **@tanstack/react-query ^5.107** |
+| UI state | **zustand ^5.1** (toast + overlay flags only) |
+| Validation | **zod ^4.6** (shared client + server) |
+| Database | **PostgreSQL** via **Prisma ~6.19** (`prisma-client-js`, `directUrl` set) |
+| Auth | Own implementation: opaque token cookie + SHA-256 hash in DB, **bcrypt ^6** (cost 12) |
+| Fonts | `next/font/google`: **DM Sans** (body), **Manrope 600/700/800** (display) |
+| Analytics | `@vercel/analytics`, `@vercel/speed-insights` (mounted in root layout) |
+| Tooling | ESLint 9 + `eslint-config-next` (core-web-vitals + typescript), `tsx` (seed), `server-only` |
+| Hosting | Vercel (`vercel.json` disables deployments for `beta` and `feature-*` branches) |
+
+---
+
+## 6. Project folder structure
+
+```
+mbg-webapp-main/
+├─ app/                              Routing, metadata, route handlers. Thin: no business logic.
+│  ├─ layout.tsx                     Root: fonts, metadata, JSON-LD, <Analytics/>, <SpeedInsights/>, <QueryProvider>
+│  ├─ globals.css                    `@import "tailwindcss"`, `@theme` tokens, element-level base styles only
+│  ├─ favicon.ico · manifest.ts · robots.ts · sitemap.ts
+│  ├─ (shell)/                       Route group = shared chrome (no URL segment)
+│  │  ├─ layout.tsx                  Server layout: <AppHeader/>, <main>, <GlobalDialogs/>, <Toast/>, <RouteOverlayReset/>
+│  │  ├─ page.tsx                    "/"          → <MatchApp/>   (indexed)
+│  │  ├─ treasury/page.tsx           "/treasury"  → <TreasuryApp/> (noindex)
+│  │  └─ admins/page.tsx             "/admins"    → <AdminsApp/>   (noindex)
+│  └─ api/                           Route Handlers (each file = `route({ roles, body }, handler)`)
+│     ├─ auth/{login,logout,me,password}/route.ts
+│     ├─ admins/route.ts · admins/[id]/route.ts · admins/[id]/password/route.ts
+│     ├─ sessions/route.ts
+│     ├─ sessions/[id]/route.ts · …/summary · …/players · …/games · …/queue  (each /route.ts)
+│     ├─ games/[id]/route.ts · …/start · …/finish · …/lock · …/players/[playerId]  (each /route.ts)
+│     └─ treasury/route.ts · treasury/entries/route.ts · treasury/entries/[id]/route.ts
+│
+├─ components/                       "use client" UI, grouped by feature. PascalCase.tsx, named exports.
+│  ├─ providers/QueryProvider.tsx    Wraps children in the shared QueryClient
+│  ├─ layout/                        AppHeader · MobileDrawer · SyncStatus · GlobalDialogs · RouteOverlayReset · nav-items.ts
+│  ├─ ui/                            Dialog (Dialog + ConfirmDialog) · Modal (alias re-export) · Skeleton · Toast · TablePagination
+│  ├─ auth/                          LoginDialog · PasswordDialog
+│  ├─ matches/                       Match feature
+│  │  ├─ MatchApp.tsx                Route root (default export): chooses Internal vs External view
+│  │  ├─ InternalMatchesWorkspace.tsx  Organiser view: selected session + sessions directory
+│  │  ├─ ExternalMatchesView.tsx     Visitor view: open-session card grid → VisitorView
+│  │  ├─ VisitorView · VisitorQueueSection · VisitorPlayersSection
+│  │  ├─ CourtBoard · CourtCard (read-only variant for visitors) · QueuePanel · NextMatch · PlayerGrid
+│  │  ├─ AssignDialog · HistoryDialog · RosterDialog · SessionDialog · SessionSettingsDialog
+│  │  └─ admin/                      Organiser-only pieces
+│  │     ├─ AdminSessionContainer · SessionView · SessionHeaderBar
+│  │     ├─ SessionsDirectory · SessionsHero · SessionsTable · SessionsFilterToolbar
+│  │     └─ useSessionFilters.ts · session-date-range.ts
+│  ├─ treasury/                      TreasuryApp (route root) · TreasuryContent · TreasuryHero · TreasuryKpiCards ·
+│  │                                 MonthlyCashflowCard · TransactionsCard · TransactionsTable · TreasuryFilterToolbar ·
+│  │                                 TreasuryEntryDialog · useTreasuryFilters.ts · period.ts
+│  └─ admins/                        AdminsApp (route root) · AdminsContent · AdminsTable · AdminDialog
+│
+├─ lib/                              Logic. Client-safe files at top level; server-only code in lib/server.
+│  ├─ types.ts                       Shared TypeScript contracts (client + server)
+│  ├─ schemas.ts                     Zod schemas + inferred input types (client + server, no server-only imports)
+│  ├─ match.ts                       Pure fairness/court/queue logic (no React, no window)
+│  ├─ api.ts                         fetch wrapper + ApiError
+│  ├─ query.ts                       Shared QueryClient + typed `queryKeys`
+│  ├─ auth.ts                        Client: useAuth(), login(), logout(), changePassword()
+│  ├─ store.ts                       Barrel: re-exports hooks + actions from lib/data/* (+ todayISO)
+│  ├─ data/                          queries.ts (useQuery hooks) · query-options.ts (shared prefetch options + mbg-boot-v1) ·
+│  │                                 session-actions · match-actions · treasury-actions · admin-actions ·
+│  │                                 current-session (localStorage id) · parse-names
+│  ├─ stores/ui-store.ts             Zustand: toast, drawer, login/password/new-session dialog flags
+│  ├─ ui.ts                          Shared Tailwind class strings (btn, pill, card, field…, cx)
+│  ├─ format.ts · date.ts · initials.ts · site.ts
+│  └─ server/                        `import "server-only"` — never imported by client files
+│     ├─ db.ts                       Prisma singleton (globalThis)
+│     ├─ http.ts                     route() wrapper, ok()/created(), CSRF guard, Zod parsing, error mapping
+│     ├─ auth.ts                     Cookie/token/lockout logic + HttpError
+│     ├─ password.ts                 bcrypt hash/verify
+│     ├─ dto.ts                      Prisma row → DTO mappers (never return Prisma models)
+│     └─ sessions.ts · games.ts · treasury.ts · admins.ts    Business rules (services)
+│
+├─ prisma/                           schema.prisma · seed.ts · migrations/ (init, init2 = SessionStatus) · migration_lock.toml
+├─ public/                           logo.jpg (header, icons, OG image); default create-next-app SVGs (unused)
+├─ AGENTS.md · README.md (create-next-app boilerplate) · SRD.md · PERFORMANCE_PLAN.md · REFACTOR_PLAN.md · REFACTOR_NOTES.md
+└─ next.config.ts · tsconfig.json · eslint.config.mjs · package.json · vercel.json · .env.example · .gitignore
+```
+
+**Dependency direction** (never import against the arrows):
+
+```
+app/**/page.tsx ──► components/<feature> ──► lib/store.ts, lib/auth.ts, lib/stores/*, lib/ui.ts, lib/match.ts
+                                                  │
+                                                  ▼
+                                           lib/data/* ──► lib/api.ts, lib/query.ts ──► (HTTP) ──► app/api/**/route.ts
+                                                                                                    │
+                                                                           lib/server/http.ts ◄─────┘ (route wrapper)
+                                                                                    │
+                                                              lib/server/{sessions,games,treasury,admins,auth}.ts
+                                                                                    │
+                                                                      lib/server/dto.ts + lib/server/db.ts (Prisma)
+```
+
+`lib/types.ts` and `lib/schemas.ts` are imported from both sides.
+
+---
+
+## 7. Data model (Prisma, PostgreSQL)
+
+Names mirror the TypeScript types (`Session`, `Player`, `Game`). The login-token table is `AuthToken` to avoid confusion with a badminton `Session`.
 
 ```prisma
-generator client {
-  provider = "prisma-client-js"
-}
+generator client { provider = "prisma-client-js" }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")     // pooled URL used at runtime
+  directUrl = env("DIRECT_URL")       // direct URL used by migrations
 }
 
-enum Role       { SUPERADMIN ADMIN }
-enum GameStatus { QUEUED ON_COURT DONE }
-enum TeamSide   { A B }
-enum EntryType  { INCOME EXPENSE }
+enum Role          { SUPERADMIN ADMIN }
+enum SessionStatus { OPEN CLOSED }
+enum GameStatus    { QUEUED ON_COURT DONE }
+enum TeamSide      { A B }
+enum EntryType     { INCOME EXPENSE }
 
 model User {
   id             String      @id @default(cuid())
-  username       String      @unique            // lowercase
+  username       String      @unique                 // stored lowercase
   passwordHash   String
   role           Role        @default(ADMIN)
   failedAttempts Int         @default(0)
   lockedUntil    DateTime?
-  deletedAt      DateTime?                      // soft delete
-  createdById    String?                        // audit only, intentionally not an FK
+  deletedAt      DateTime?                            // soft delete
+  createdById    String?                              // audit only, not an FK
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
   tokens         AuthToken[]
@@ -232,7 +356,7 @@ model User {
 model AuthToken {
   id        String   @id @default(cuid())
   userId    String
-  tokenHash String   @unique                    // sha-256 hex of the cookie value
+  tokenHash String   @unique                          // sha-256 hex of the cookie value
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -240,24 +364,26 @@ model AuthToken {
 }
 
 model Session {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   name        String
-  date        DateTime @db.Date
-  courtCount  Int      @default(1)
+  date        DateTime      @db.Date
+  courtCount  Int           @default(1)
+  status      SessionStatus @default(OPEN)            // CLOSED = organisers only
   createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
   players     Player[]
   games       Game[]
   @@index([date])
+  @@index([status, date])
 }
 
 model Player {
   id        String       @id @default(cuid())
   sessionId String
   name      String
-  nameKey   String                               // lowercased name, for uniqueness
-  position  Int                                  // roster order
+  nameKey   String                                    // lowercased name → uniqueness
+  position  Int                                       // roster order
   session   Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   games     GamePlayer[]
   @@unique([sessionId, nameKey])
@@ -266,10 +392,10 @@ model Player {
 model Game {
   id          String       @id @default(cuid())
   sessionId   String
-  seq         Int                                // creation order within the session
+  seq         Int                                     // creation order within the session
   status      GameStatus
-  courtNumber Int?                               // set only while ON_COURT
-  queueOrder  Int?                               // set only while QUEUED
+  courtNumber Int?                                    // only while ON_COURT
+  queueOrder  Int?                                    // only while QUEUED
   locked      Boolean      @default(false)
   createdAt   DateTime     @default(now())
   startedAt   DateTime?
@@ -277,14 +403,14 @@ model Game {
   session     Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   players     GamePlayer[]
   @@unique([sessionId, seq])
-  @@unique([sessionId, courtNumber])             // NULLs are distinct in PostgreSQL → one match per court
+  @@unique([sessionId, courtNumber])                  // NULLs are distinct in PostgreSQL → one match per court
   @@index([sessionId, status])
 }
 
-model GamePlayer {                               // a row = "ticked" in the checklist
+model GamePlayer {                                    // one row = "ticked" in the checklist
   gameId   String
   playerId String
-  team     TeamSide?                             // null once ticks are edited by hand
+  team     TeamSide?                                  // null once ticks are edited by hand
   game     Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
   player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
   @@id([gameId, playerId])
@@ -293,539 +419,490 @@ model GamePlayer {                               // a row = "ticked" in the chec
 model TreasuryEntry {
   id          String    @id @default(cuid())
   type        EntryType @default(EXPENSE)
-  amount      Int                                // whole IDR, > 0
+  amount      Int                                     // whole IDR, > 0
   purpose     String
   date        DateTime  @db.Date
   createdById String
   updatedById String?
   deletedById String?
-  deletedAt   DateTime?                          // soft delete
+  deletedAt   DateTime?                               // soft delete
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   @@index([date])
 }
 ```
 
-> Prisma **6** is used (classic generator, `@prisma/client`, no driver adapter, the CLI reads `.env` itself). Pin `prisma` and `@prisma/client` to the same `~6.19` version. Prisma 7 is intentionally not used.
+Migrations: `20261108151400_init` (full schema) and `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`).
 
 ### Derived rules the schema relies on
 
-- **Played count** = `COUNT(GamePlayer)` per player within the session.
-- **Teams** of a game = `GamePlayer.team` grouped; if any row has `team = null`, the game has no team info (same meaning as `teams?: undefined` in v1).
-- **Court occupancy** = a `Game` with `status = ON_COURT` and `courtNumber = n`. On finish, `courtNumber` is set to `null` (that is what keeps the unique constraint simple).
-- **Balance** = `SUM(amount) WHERE type=INCOME AND deletedAt IS NULL` − same for `EXPENSE`.
+- **Games played** = `COUNT(GamePlayer)` per player in the session (any game status). **Queued** = those whose game is `QUEUED`.
+- **Teams** of a game come from `GamePlayer.team`; if any row has `team = null` the match has no team info (`teams` is omitted in the DTO).
+- **Court occupancy** = a `Game` with `status = ON_COURT` and `courtNumber = n`. On finish `courtNumber` becomes `null`, which keeps the unique constraint simple.
+- **Balance** = Σ `amount` of `INCOME` − Σ of `EXPENSE`, both with `deletedAt IS NULL`.
 
-## A.6 Shared TypeScript contracts
+---
 
-`lib/types.ts` keeps today's shapes and **adds** fields, so `lib/match.ts` and most components keep compiling.
+## 8. Shared types & validation schemas
 
-```ts
-export type Role = "SUPERADMIN" | "ADMIN";
-export type GameStatus = "QUEUED" | "ON_COURT" | "DONE";
+### 8.1 Types (`lib/types.ts`)
 
-export interface AuthUser { id: string; username: string; role: Role }
-export interface AdminUser { id: string; username: string; role: Role; createdAt: string; deletedAt: string | null }
+| Type | Notes |
+|------|-------|
+| `Role`, `SessionStatus`, `GameStatus`, `EntryType` | String unions matching the Prisma enums |
+| `AuthUser { id, username, role }` · `AdminUser { …, createdAt, deletedAt }` | Dates are ISO strings |
+| `Player { id, name }` · `Team = [string, string]` | Team = two player ids |
+| `Game` | `playerIds`, optional `teams: [Team, Team]`, `createdAt/startedAt/finishedAt` (epoch ms), `status`, `courtNumber?` (ON_COURT only), `queueOrder?` (QUEUED only), `locked` |
+| `Session` | Organiser payload: `id, name, date (yyyy-mm-dd), courtCount, status, players, games` (games ordered by `seq`) |
+| `SessionListItem` · `SessionsFilterParams` · `SessionsPage` | List row (+ `playerCount`, `gameCount`), filters, and `{ sessions, totalSessions, openCount, closedCount, page, pageSize, totalPages }` |
+| `PublicGame` · `SessionSummary` | Visitor payload: courts + queue + `players[{ id, name, count, queued }]` (`count` includes queued) |
+| `TreasuryEntry` · `TreasuryMonthlyBucket` · `TreasuryFilterParams` · `TreasurySummary` | Summary holds all-time and period totals, `monthly[]`, the page of `entries`, and pagination |
 
-export interface Game {
-  id: string;
-  playerIds: string[];                 // ticked players (unchanged)
-  teams?: [Team, Team];                // unchanged
-  createdAt?: number;                  // epoch ms (unchanged)
-  status: GameStatus;                  // new
-  courtNumber?: number;                // new — only when ON_COURT
-  queueOrder?: number;                 // new — only when QUEUED
-  locked: boolean;                     // new
-}
+### 8.2 Zod schemas (`lib/schemas.ts`)
 
-export interface Session {             // admin payload
-  id: string; name: string; date: string;   // yyyy-mm-dd
-  courtCount: number;                  // new
-  players: Player[]; games: Game[];    // games ordered by seq
-}
+| Schema | Rules |
+|--------|-------|
+| `usernameSchema` | trim, lowercase, `/^[a-z0-9_.-]{3,32}$/` |
+| `passwordSchema` | min 10 chars, ≤ 72 bytes (UTF-8) |
+| `isoDate` | `/^\d{4}-\d{2}-\d{2}$/` |
+| `loginSchema` | `username`, `password` (1–72) |
+| `changePasswordInput` | `currentPassword` (1–72), `newPassword` (`passwordSchema`) |
+| `adminCreateInput` · `adminPasswordInput` | username + password · password |
+| `sessionInput` | `name` 1–60, `date`, `courtCount` int 1–8, `status` (`OPEN` default), `names[]` ≤ 60 items of 1–40 chars |
+| `sessionPatchInput` | all of name/date/courtCount/status optional, at least one required |
+| `rosterInput` | `{ names }` (same rule as `sessionInput.names`) |
+| `teamsSchema` | `[[id,id],[id,id]]`, all four distinct |
+| `assignInput` | `target` = `{ type: "court", courtNumber 1–8 }` \| `{ type: "queue" }`, plus `teams` |
+| `gameUpdateInput` | `{ teams }` |
+| `tickInput` · `lockInput` | `{ checked }` · `{ locked }` |
+| `startInput` | `{ courtNumber 1–8 }` |
+| `queueOrderInput` | `{ gameIds: string[] }` |
+| `treasuryInput` | `type` (`EXPENSE` default), `amount` int 1–1,000,000,000, `purpose` 1–200, `date` |
+| `treasuryPatchInput` | all optional, at least one required |
 
-export interface SessionListItem { id: string; name: string; date: string }
-export interface PublicGame {                                  // court or queue entry, public
-  id: string;
-  status: "ON_COURT" | "QUEUED";                               // QUEUED = the "Queued" flag (A6)
-  courtNumber?: number;
-  queueOrder?: number;
-  playerIds: string[];
-  teams?: [Team, Team];
-}
-export interface SessionSummary extends SessionListItem {      // public payload
-  courtCount: number;
-  players: { id: string; name: string; count: number; queued: number }[]; // count includes queued
-  courts: PublicGame[];                                        // status ON_COURT
-  queue: PublicGame[];                                         // status QUEUED, ordered
-}
+Every schema has an exported `z.infer` type (`LoginInput`, `SessionInput`, `AssignInput`, …) next to it.
 
-export interface TreasuryEntry {
-  id: string; type: "INCOME" | "EXPENSE"; amount: number;
-  purpose: string; date: string; createdByName: string;
-}
-export interface TreasurySummary { balance: number; income: number; expense: number; entries: TreasuryEntry[] }
-```
+---
 
-`lib/schemas.ts` (Zod, **imported by both client and server**, no server-only imports):
+## 9. API specification
 
-```ts
-export const usernameSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9_.-]{3,32}$/);
-export const passwordSchema = z.string().min(10)
-  .refine((v) => new TextEncoder().encode(v).length <= 72, "Max 72 bytes (bcrypt limit)");
-export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);     // yyyy-mm-dd
-export const loginSchema = z.object({ username: usernameSchema, password: z.string().min(1).max(72) });
-export const sessionInput = z.object({
-  name: z.string().trim().min(1).max(60), date: isoDate,
-  courtCount: z.number().int().min(1).max(8), names: z.array(z.string().trim().min(1).max(40)).max(60),
-});
-export const rosterInput = z.object({ names: sessionInput.shape.names });
-export const teamsSchema = z.tuple([z.tuple([z.string(), z.string()]), z.tuple([z.string(), z.string()])])
-  .refine((t) => new Set(t.flat()).size === 4, "Pick 4 different players");
-export const assignInput = z.object({
-  target: z.discriminatedUnion("type", [
-    z.object({ type: z.literal("court"), courtNumber: z.number().int().min(1).max(8) }),
-    z.object({ type: z.literal("queue") }),
-  ]),
-  teams: teamsSchema,
-});
-export const tickInput = z.object({ checked: z.boolean() });
-export const lockInput = z.object({ locked: z.boolean() });
-export const startInput = z.object({ courtNumber: z.number().int().min(1).max(8) });
-export const queueOrderInput = z.object({ gameIds: z.array(z.string()) });
-export const treasuryInput = z.object({
-  type: z.enum(["INCOME", "EXPENSE"]).default("EXPENSE"),
-  amount: z.number().int().min(1).max(1_000_000_000),
-  purpose: z.string().trim().min(1).max(200),
-  date: isoDate,
-});
-```
+Base `/api`. JSON in and out. Every response carries `Cache-Control: no-store`. Roles: **P** public, **A** Admin or Superadmin, **S** Superadmin only.
 
-## A.7 API specification
+**Success shapes are wrapped objects**, not bare values: `{ user }`, `{ session }`, `{ summary }`, `{ game }`, `{ entry }`, `{ admins }`, `{ admin }`, `{ ok: true }`; list endpoints `GET /sessions` and `GET /treasury` return their page objects directly.
 
-Base: `/api`. JSON in/out. All responses `Cache-Control: no-store`.
-Roles: **P** public, **A** admin or superadmin, **S** superadmin. `GET /sessions/:id` stays **A** so admins can run matches in any session.
-
-**Error format** (always):
+**Error shape (always):**
 
 ```json
 { "error": { "code": "GAME_LOCKED", "message": "This match is locked. Unlock it first.", "fields": { "name": "Required" } } }
 ```
 
-| HTTP | Meaning | Example codes |
-|------|---------|---------------|
-| 400 | Zod validation failed | `VALIDATION` |
-| 401 | Not logged in / session expired | `UNAUTHENTICATED` |
-| 403 | Logged in, role too low / CSRF guard | `FORBIDDEN` |
-| 404 | Not found (or not visible) | `NOT_FOUND` |
-| 409 | Rule conflict | `GAME_LOCKED`, `PLAYER_BUSY`, `COURT_OCCUPIED`, `NAME_TAKEN` |
-| 429 | Login throttled | `TOO_MANY_ATTEMPTS` |
+| HTTP | Codes |
+|------|-------|
+| 400 | `VALIDATION` (Zod failure or rule such as "player not in roster", "court does not exist"; `fields` from the first issue per path) |
+| 401 | `UNAUTHENTICATED` |
+| 403 | `FORBIDDEN` (role, CSRF guard, deleting self/superadmin), `SESSION_CLOSED` |
+| 404 | `NOT_FOUND` |
+| 409 | `GAME_LOCKED`, `PLAYER_BUSY`, `COURT_OCCUPIED`, `NAME_TAKEN`, `INVALID_STATE` |
+| 429 | `TOO_MANY_ATTEMPTS` |
+| 500 | `INTERNAL_ERROR` (generic message) |
 
-| Method & path | Role | Purpose / body → result |
+| Method & path | Role | Body / query → response |
 |---------------|:----:|-------------------------|
 | `POST /auth/login` | P | `loginSchema` → sets cookie, `{ user }` |
-| `POST /auth/logout` | P | Deletes token, clears cookie |
-| `GET /auth/me` | P | `{ user \| null }` |
-| `POST /auth/password` | A | `{ currentPassword, newPassword }` |
-| `GET /admins` | S | List admins incl. deleted |
-| `POST /admins` | S | `{ username, password }` → new `ADMIN` |
-| `DELETE /admins/:id` | S | Soft delete + revoke tokens |
-| `PUT /admins/:id/password` | S | `{ password }` reset |
-| `GET /sessions` | P | `SessionListItem[]`, newest date first |
-| `GET /sessions/:id/summary` | P | `SessionSummary` (counts + courts + queue, see A.6) |
-| `GET /sessions/:id` | A | Full `Session` |
-| `POST /sessions` | S | `sessionInput` → `Session` |
-| `PATCH /sessions/:id` | S | `{ name?, date?, courtCount? }` |
-| `DELETE /sessions/:id` | S | Cascade delete |
-| `PUT /sessions/:id/players` | S | `rosterInput` (diff by name, one transaction) |
-| `POST /sessions/:id/games` | A | `assignInput` → `Game`; creates ticks + `locked=true` |
-| `DELETE /sessions/:id/games` | A | Clear all matches |
-| `PUT /sessions/:id/queue` | A | `queueOrderInput` reorder |
-| `PATCH /games/:id` | A | `{ teams }` replace players (court/queue matches) |
-| `DELETE /games/:id` | A | Delete match |
-| `POST /games/:id/start` | A | `startInput` — QUEUED → ON_COURT |
-| `POST /games/:id/finish` | A | ON_COURT → DONE, free court |
-| `PUT /games/:id/players/:playerId` | A | `tickInput`; 409 if locked; auto-lock at 4 |
-| `PUT /games/:id/lock` | A | `lockInput` |
-| `GET /treasury` | A | `TreasurySummary` |
-| `POST /treasury/entries` | A | `treasuryInput` → entry |
-| `PATCH /treasury/entries/:id` | S | Partial `treasuryInput` |
-| `DELETE /treasury/entries/:id` | S | Soft delete |
+| `POST /auth/logout` | P | → `{ ok }`; deletes token, clears cookie |
+| `GET /auth/me` | P | → `{ user \| null }` |
+| `POST /auth/password` | A | `changePasswordInput` → `{ ok }` |
+| `GET /admins` | S | → `{ admins }` (incl. soft-deleted) |
+| `POST /admins` | S | `adminCreateInput` → 201 `{ admin }` |
+| `DELETE /admins/:id` | S | soft delete + revoke tokens → `{ ok }` |
+| `PUT /admins/:id/password` | S | `adminPasswordInput` → `{ ok }` |
+| `GET /sessions` | P | query `from,to,status,q,page,pageSize` → `SessionsPage` (visitors: open only) |
+| `POST /sessions` | S | `sessionInput` → 201 `{ session }` |
+| `GET /sessions/:id` | A | → `{ session }` (full) |
+| `PATCH /sessions/:id` | A | `sessionPatchInput` → `{ session }`; non-status fields need S (else 403) |
+| `DELETE /sessions/:id` | S | cascade → `{ ok }` |
+| `GET /sessions/:id/summary` | P | → `{ summary }`; closed + visitor → 403 `SESSION_CLOSED` |
+| `PUT /sessions/:id/players` | S | `rosterInput` (diff by name, one transaction) → `{ session }` |
+| `POST /sessions/:id/games` | A | `assignInput` → 201 `{ game }` (locked on creation) |
+| `DELETE /sessions/:id/games` | A | clear all matches → `{ ok }` |
+| `PUT /sessions/:id/queue` | A | `queueOrderInput` → `{ session }` |
+| `PATCH /games/:id` | A | `gameUpdateInput` → `{ game }` |
+| `DELETE /games/:id` | A | → `{ ok }` (queue compacts) |
+| `POST /games/:id/start` | A | `startInput` → `{ game }` (QUEUED → ON_COURT) |
+| `POST /games/:id/finish` | A | → `{ game }` (ON_COURT → DONE) |
+| `PUT /games/:id/players/:playerId` | A | `tickInput` → `{ game }`; 409 if locked; locks at exactly 4 |
+| `PUT /games/:id/lock` | A | `lockInput` → `{ game }` |
+| `GET /treasury` | A | query `from,to,type,q,page,pageSize` → `TreasurySummary` |
+| `POST /treasury/entries` | A | `treasuryInput` → 201 `{ entry }` |
+| `PATCH /treasury/entries/:id` | S | `treasuryPatchInput` → `{ entry }` |
+| `DELETE /treasury/entries/:id` | S | soft delete → `{ ok }` |
 
-Route Handlers use Next 16 conventions: `params` is a `Promise` (`await ctx.params`, typed with the global `RouteContext<"/api/games/[id]">`), no `runtime`/`dynamic` exports (not supported with `cacheComponents`).
+**How `route()` runs (`lib/server/http.ts`):** `await connection()` (so Next never tries to prerender the handler under `cacheComponents`) → CSRF guard → resolve user from cookie → role check (`roles` is mandatory; `"public"` must be explicit) → parse body with Zod (400 on failure) → handler → map `HttpError` / unknown errors to the error shape.
 
-## A.8 UI specification
+---
+## 10. Client architecture & data flow
 
-### Screens
+### 10.1 Render pipeline
 
-| Route | Component | Audience |
-|-------|-----------|----------|
-| `/` | `MatchApp` | Everyone; content depends on role |
-| `/treasury` | `TreasuryApp` | Admin/Superadmin (others see a "Please log in" card) |
-| `/admins` | `AdminsApp` | Superadmin (others see "Not allowed") |
+```
+app/layout.tsx (server)            html, fonts, metadata, JSON-LD, Analytics, SpeedInsights
+ └─ <QueryProvider>                shared QueryClient (lib/query.ts)
+     └─ app/(shell)/layout.tsx     server layout
+         ├─ <AppHeader/>           client; reads useAuth(), pathname, Zustand drawer state
+         ├─ <main>{page}</main>    page → one "use client" root (MatchApp | TreasuryApp | AdminsApp)
+         ├─ <GlobalDialogs/>       Login / Password / New-session dialogs (Zustand flags)
+         ├─ <Toast/>               role="status"; text from Zustand
+         └─ <RouteOverlayReset/>   closes drawer/dialogs on route change
+```
 
-### Header (`AppHeader`)
-Shared across `/`, `/treasury`, and `/admins`. Logo + title on the left.
-- **Desktop (`> 860px`)**: *Visitor* → **Admin login** button. *Admin* → nav links (**Matches**, **Treasury**), username + role pill, **Password**, **Log out**. *Superadmin* → same plus **＋ New session** and **Admins**. "Live" dot indicates active polling.
-- **Tablet & phone (`max-[860px]`)**: Compact single-row top bar with a **☰ Menu** button that opens a slide-over **sidebar drawer** containing the user profile card, navigation links (**Matches**, **Treasury**, **Admins**), quick actions (**＋ New session**, **Change password**), and **Log out** (supports backdrop click and `Esc` to close).
+Because screens render static hero frames and shaped skeletons (`SkeletonRegion`) immediately during `authLoading`, users see meaningful layout and headings in initial SSR HTML while `QueryProvider` prefetches `/api/auth/me` and the likely home query in parallel on client module load.
 
-### Admin session page (top to bottom)
-1. **Title row** — date eyebrow, session name, session switcher, History. **Superadmin only:** Edit players, **Session settings** (name/date/courts), Delete.
-2. **Courts** — grid of `CourtCard`s (1 col mobile, 2 cols desktop). Occupied card: Court N, Team A vs Team B with avatars, "Playing since hh:mm", buttons *Edit players*, *Finish*. Empty card: dashed border, *Assign players*, and *Play next in queue* when the queue is not empty.
-3. **Queue ("Next matches")** — ordered list of queued matches (Team A vs Team B), per-item ▲ ▼ Edit ✕, and **＋ Add to queue**.
-4. **Next match** (recommendation, existing card) — actions: *Shuffle*, *Assign to court*, *Add to queue*, plus the waiting list.
-5. **Games played** (checklist) — as today, with locked columns (lock icon in the header, disabled checkboxes, subtle tinted header). No "Add game" button.
+### 10.2 Loading gates
 
-### Dialogs (all use the existing `Modal`)
-`LoginDialog`, `SessionDialog` (+ court count, superadmin), `SessionSettingsDialog` (superadmin), `RosterDialog` (superadmin), `HistoryDialog` (adds status pill, court, lock), `AssignDialog` (court picker or "queue", Team A/B player selects, "Use recommendation" button, busy hints), `TreasuryEntryDialog`, `AdminDialog`, `PasswordDialog`.
+| Screen | Gate sequence |
+|--------|---------------|
+| `MatchApp`, `TreasuryApp`, `AdminsApp` | `authLoading` → frame-first screen skeleton (`MatchesSkeleton`, `TreasuryHero` + `TreasurySkeleton`, Admins hero + `AdminsSkeleton`). No top-level `useHydrated()` block; `useCurrentSessionId()` reads `localStorage` via `useSyncExternalStore` with server snapshot `""`. |
+| `ExternalMatchesView` | `useSessionsList` runs first, then `currentSessionId` → `VisitorView`. Renders hero frame immediately and `ExternalMatchesSkeleton` below while `loading && !data`. |
+| `VisitorView` | `loading` → `VisitorViewSkeleton`; `error \|\| !summary` → "Session unavailable" card. |
+| `InternalMatchesWorkspace` | Mounts `AdminSessionContainer` (if a session is selected) **and** `SessionsDirectory` at the same time; each renders its own shaped skeleton (`SessionViewSkeleton`, `SessionsDirectorySkeleton`). |
+| `AdminSessionContainer` | `loading` → `SessionViewSkeleton`; `error \|\| !session` → "Session not found" card. |
+| `SessionsDirectory` | `loading && !data` → `SessionsDirectorySkeleton`. |
+| `TreasuryContent` | Renders `TreasuryHero` continuously; `loading && !treasury` → `TreasurySkeleton`. |
+| `AdminsContent` | Renders Admin accounts hero continuously; `loading \|\| !admins` → `AdminsSkeleton`. |
+| `AppHeader` | While `loading`, renders fixed-size skeleton pills (`data-skeleton`) in desktop and mobile auth control slots to prevent header pop / CLS. |
 
-### Treasury page
-Balance card (large number, income/expense sub-totals), **＋ Add spent** primary button (and secondary **＋ Add income**), entries table (date, purpose, type pill, amount, added by; superadmin gets Edit/Delete links). Empty state card in the existing `empty` style.
+Hooks always stay above early returns in the same component; filter state is owned by the component that calls the query hook.
 
-### Visitor page
-Session switcher, then three read-only cards: **Courts** (same card layout as admin but no buttons), **Queue** (ordered, each item with a "Queued" pill), and **Games played** (player list, counts, `+N queued` hint). No controls, no checklist grid.
+### 10.3 Server state (TanStack Query)
 
-## A.9 Business rules & edge cases
+`queryClient` defaults: `retry: 1`, `staleTime: 2_000`, `refetchOnWindowFocus: true`. Keys come from `queryKeys` in `lib/query.ts`.
+
+| Hook (in `lib/data/queries.ts` / `lib/auth.ts`) | Key | Endpoint | Polling | Notes |
+|------|-----|----------|---------|-------|
+| `useAuth()` | `["auth","me"]` | `GET /auth/me` | none | `loading = isPending` |
+| `useSessionsList(params, pollMs = 10s)` | `["sessions","list",params]` | `GET /sessions` | 10 s | `keepPreviousData` |
+| `useSessionSummary(id)` | `["sessions","summary",id]` | `GET /sessions/:id/summary` | 10 s | enabled when `id` set |
+| `useSessionDetail(id)` | `["sessions","detail",id]` | `GET /sessions/:id` | 5 s | organisers only |
+| `useTreasury(params)` | `["treasury","summary",params]` | `GET /treasury` | none | `keepPreviousData` |
+| `useAdmins()` | `["admins","list"]` | `GET /admins` | none | superadmin |
+
+All polling uses `refetchIntervalInBackground: false` (paused when the tab is hidden).
+
+### 10.4 Mutations
+
+Actions live in `lib/data/*-actions.ts` and are re-exported by the `lib/store.ts` barrel. Components call actions, never `fetch`.
+
+- **Optimistic with rollback** (`match-actions.ts`): `startQueuedMatch`, `finishMatch`, `reorderQueue`, `removeGame`, `clearGames`, `setPlayed`, `setGameLocked`. Pattern: `cancelQueries` → snapshot `prevSession` → `setQueryData` optimistic → `api()` → write server result → `invalidateQueries` (detail/summary) → on error restore snapshot, invalidate, **rethrow** (the component shows a toast).
+- **Server-result writes** (not optimistic): `assignMatch`, `updateMatchPlayers`, session create/update/roster, treasury and admin actions. Pattern: `api()` → `setQueryData` or `invalidateQueries`.
+- `login()` sets `["auth","me"]` and invalidates `["sessions"]`; `logout()` clears auth, removes session-detail/treasury/admins queries and invalidates `["sessions"]`.
+- The five busy/loading flags in a screen (`finishingGameId`, `movingGameId`, …) are local `useState`; buttons show the `spinner` class while busy.
+
+### 10.5 UI state ownership
+
+| State | Where |
+|-------|-------|
+| Server data (sessions, games, treasury, admins, auth user) | TanStack Query only |
+| Toast text, mobile drawer, login / password / new-session dialog flags | Zustand `lib/stores/ui-store.ts` (`useUiStore`, `useToast()`); toast clears after 2600 ms |
+| Selected session id | `localStorage["mbg-current-v2"]` via `lib/data/current-session.ts` (`useSyncExternalStore`, cross-tab `storage` event, server snapshot `""`) |
+| Boot prefetch hint | `localStorage["mbg-boot-v1"]` via `lib/data/query-options.ts` (`{ role: "organiser" \| "visitor" }`, updated on auth settle/login, cleared on logout) |
+| Filters, pagination, page size | `useSessionFilters`, `useTreasuryFilters`, and local `useState` in `ExternalMatchesView` |
+| Screen-local dialogs and busy flags | `useState` in the screen (`SessionView`, `PlayerGrid`, …) |
+
+Zustand is for UI state only. Server data never goes into Zustand.
+
+---
+
+## 11. UI specification
+
+### 11.1 Routes
+
+| Route | Root component | Audience | Indexing |
+|-------|----------------|----------|----------|
+| `/` | `MatchApp` | Everyone; content depends on role | indexed |
+| `/treasury` | `TreasuryApp` | Organisers (visitors see "Please log in to view treasury" + Admin login button) | `noindex` |
+| `/admins` | `AdminsApp` | Superadmin (others see "Not allowed" + Back to matches) | `noindex` |
+
+### 11.2 Header and navigation (`AppHeader`, `MobileDrawer`)
+
+- Left: logo (`next/image`, priority) + "Minggu Badminton Guys / FAIR MATCH PLANNER", linking to `/`.
+- **Desktop (> 860 px):** sync status ("Live" dot / "Syncing…" spinner from `useIsFetching`). Logged out → "Admin login" (and "← Back to matches" outside `/`). Logged in → nav links *Matches, Treasury, Admins (superadmin)*, username + role pill, **Password**, **＋ New session** (superadmin, on `/` only), **Log out**.
+- **Tablet/phone (≤ 860 px):** compact bar with **＋ New** (superadmin on `/`) and **☰ Menu**, which opens a right-side drawer (`MobileDrawer`) with sync status, profile card, nav links, quick actions and Log out. Closes on backdrop click, `Esc`, or route change.
+
+### 11.3 `/` for visitors
+
+1. Hero ("Live match day" / "Play fair. Play more.") with open-session count pill and "Syncing…" indicator.
+2. Optional name search (shown when > 3 open sessions or a search is active).
+3. Card grid of open sessions (date, name, courts/players/matches counters, "View session →"); pager when > 9.
+4. Selecting a card shows `VisitorView`: header (date, Open/Closed pill, name, "← All sessions"), **Courts**, **Queue**, **Games played** (§3.8).
+
+### 11.4 `/` for organisers (`InternalMatchesWorkspace`)
+
+Top to bottom:
+
+1. **Selected session** (if any) — `SessionView`:
+   1. `SessionHeaderBar`: date + status pill, session name (h1), *← All sessions*, *Close/Reopen session*, *History · n*; **superadmin only:** *Edit players*, *Session settings*, *Delete*.
+   2. **Courts** (`CourtBoard`): `CourtCard` grid (2 cols, 1 on mobile). Occupied: Court N, Team A vs Team B, "Playing since hh:mm", *Edit players*, *✓ Finish match*. Empty (dashed): *＋ Assign players* and *▶ Play next in queue* when the queue has items.
+   2. **Queue** (`QueuePanel`): ordered list with "Queued" pill, ▲ ▼, Edit, ✕ (confirm), *＋ Add to queue*.
+   3. Two-column area (1.7fr / 1fr; stacked on mobile): **Games played** (`PlayerGrid`, left) and **Next match** (`NextMatch`, right, sticky on desktop; first on mobile) with *Shuffle*, *Assign to court*, *Add to queue*, and the waiting list.
+2. **Sessions directory** (`SessionsDirectory`): hero (only when no session is selected), card with open/closed pills, filter toolbar (period: all / this month / last 30 days / this year / custom; status; name search), table (open, close/reopen, delete for superadmin), pagination (5 / 10 / 25 / 50 rows).
+
+### 11.5 `/treasury`
+
+`TreasuryHero` (eyebrow "Club treasury", all-time cash left, **＋ Add income**, **＋ Add spent**) → `TreasuryKpiCards` (all-time cash left with In/Out ratio bar; period income; period spent; period net) → `MonthlyCashflowCard` (6-month chart, click a month to filter) → `TransactionsCard` (filter toolbar, `TransactionsTable` with date, purpose, type, amount, added by, and superadmin Edit/Delete; pagination 10 / 25 / 50). Soft delete asks for confirmation.
+
+### 11.6 `/admins`
+
+Hero ("Superadmin" / "Admin accounts", **＋ Add admin**) and an "Organisers" card with `AdminsTable` (username, role, status, created, reset password / delete). Dialog for create and for password reset. Self and superadmin rows cannot be deleted.
+
+### 11.7 Dialogs
+
+All use `components/ui/Dialog.tsx` (`Dialog`, `ConfirmDialog`; `Modal` is an unused alias). Footer = **Cancel** (`btn("light")`) then primary action (`btn("primary")`), both inside `modalActions`. Esc and backdrop close.
+
+| Dialog | Opened from | Roles |
+|--------|-------------|-------|
+| `LoginDialog` ("Admin login") | header, visitor empty state, treasury gate | everyone |
+| `PasswordDialog` ("Change password") | header / drawer | organisers |
+| `SessionDialog` ("New game session": name, date, courts, status, players text) | header "＋ New session" via `GlobalDialogs` | superadmin |
+| `SessionSettingsDialog` (name, date, courts, open/closed) | `SessionHeaderBar` | superadmin |
+| `RosterDialog` ("Edit players") | `SessionHeaderBar` | superadmin |
+| `AssignDialog` (court picker or queue, Team A/B selects, "use recommendation", busy hints; also edits a match) | CourtBoard, QueuePanel, NextMatch | organisers |
+| `HistoryDialog` ("Match history", newest first; status pill, court, lock info, remove) | `SessionHeaderBar` | organisers |
+| `TreasuryEntryDialog` (type, amount, purpose, date; add or edit) | Treasury hero / table | add: organisers; edit: superadmin |
+| `AdminDialog` (create admin / reset password) | `/admins` | superadmin |
+| `ConfirmDialog` (remove queued match, delete session, remove game, clear all, delete treasury entry, delete admin) | various | as the action |
+
+---
+
+## 12. Business rules & edge cases
 
 | Situation | Rule |
 |-----------|------|
-| Assign to a court that is occupied | 409 `COURT_OCCUPIED` |
-| Player already on a court assigned to another court | 409 `PLAYER_BUSY` |
-| Edit players of an on-court match | Allowed; busy check excludes the match being edited |
-| Tick change on locked column | 409 `GAME_LOCKED` |
-| Untick makes a column 3/4 | Allowed (column was unlocked); `locked` stays false until it reaches exactly 4 again, then auto-locks |
-| Roster edit removes a player | Their ticks vanish; any game they were in is **unlocked** and `teams` cleared |
+| Assign to an occupied court | 409 `COURT_OCCUPIED` |
+| Assign / promote / edit-on-court with a player already on another court | 409 `PLAYER_BUSY` (not checked when adding to the queue) |
+| Court number above the session's `courtCount` | 400 `VALIDATION` |
+| Edit players of an on-court match | Allowed; busy check ignores the match being edited; match re-locks |
+| Tick change on a locked match | 409 `GAME_LOCKED` |
+| Manual tick leaves 4 ticks / any other count | Auto-locks / stays or becomes unlocked |
+| Promote a match that is not queued | 409 `INVALID_STATE` |
+| Finish a match that is not on court | 409 `INVALID_STATE` |
+| Reorder queue without all queued ids exactly once | 400 `VALIDATION` |
+| Roster edit removes a player | Ticks vanish; every game they were in is unlocked and its `team` cleared |
 | Court count lowered below an occupied court | 409 `COURT_OCCUPIED` |
-| Delete an on-court or queued match | Allowed; court/queue slot frees; queue order compacts |
-| Finish match | Sets `DONE`, `finishedAt`, `courtNumber = null`; ticks and lock unchanged |
-| Promote queued match to court | Same busy/occupied checks as direct assignment |
-| Soft-deleted admin with a live cookie | Next request fails (`deletedAt` checked on every request) → 401 |
-| Last superadmin | Cannot be deleted (also guarded in UI) |
-| Treasury entry soft-deleted | Hidden from list and balance; kept in DB |
-| Two admins act at once | Ticks are idempotent; assignments are validated inside a transaction; the loser gets a 409 and the UI refetches |
-
-## A.10 Acceptance criteria (summary)
-
-1. A visitor opening `/` sees names, counts, who is on each court and the queue (queued items flagged), and nothing else; calling `GET /api/sessions/:id` without a cookie returns 401.
-2. Logging in sets an `HttpOnly` cookie (verifiable in dev tools: not readable from `document.cookie`); logout removes it.
-3. A superadmin creates a session; an admin can then run it: assign 2 matches to 2 courts → queue a third (flagged "Queued") → finish one → promote the queued match (flag disappears) → tick/untick and see lock behaviour → visitors see courts, queue and counts update within ~10 s.
-4. A column with exactly 4 ticks is locked after reload; unlocking persists; the server rejects ticks while locked.
-5. An admin gets 403 on **any session create/edit/roster/delete**, treasury edit/delete, and admin management; a superadmin succeeds.
-6. Soft-deleting an admin logs them out on their next request and blocks re-login.
-7. Treasury balance equals income minus expense for non-deleted entries; adding an entry updates it immediately.
-8. `/` keeps its metadata, JSON-LD, sitemap entry; `/treasury` and `/admins` are `noindex`.
-9. `npm run lint`, `npx tsc --noEmit` and `npm run build` pass.
+| Delete a queued match | Queue order compacts to 1…n |
+| Finish match | `DONE`, `finishedAt`, `courtNumber = null`; ticks and lock unchanged |
+| Visitor opens a closed session by id | 403 `SESSION_CLOSED`; UI shows "Session unavailable" |
+| Soft-deleted admin with a live cookie | Next request fails (`deletedAt` checked each request) → treated as logged out |
+| Delete yourself or a superadmin | 403 `FORBIDDEN` |
+| Treasury entry soft-deleted | Hidden from list, chart and all totals; kept in DB |
+| Two organisers act at once | Ticks are idempotent; assignments are validated inside a transaction; the loser gets a 409 and the UI refetches |
 
 ---
+## 13. Coding rules
 
-# PART B — CODING RULES
+These rules describe what the code **actually does today**. When in doubt, copy the nearest existing file.
 
-These rules are **extracted from the existing code** (Section B.1–B.8) so new files look like the old ones, followed by rules for the layers that do not exist yet (B.9–B.12). Anything not listed: copy the nearest existing file.
+### 13.0 First rule for this repo
 
-## B.0 First rule for this repo
+`AGENTS.md` says this is **not the Next.js you know**. Before writing Next-specific code, read the matching page in `node_modules/next/dist/docs/`. Facts already applied here:
 
-`AGENTS.md` states this is **not the Next.js you know**. Before writing Next-specific code, read the matching page in `node_modules/next/dist/docs/` (e.g. `route.md`, `proxy.md`, `cacheComponents.md`, `cookies.md`, `connection.md`). Facts verified and applied in this codebase: `middleware` is renamed **`proxy`**; Route Handler `params` is a **Promise**; `runtime`/`dynamic` route-segment exports are unsupported with `cacheComponents`; `LayoutProps<"/">` and `RouteContext<"…">` are global typed helpers; with `cacheComponents: true`, `GET` Route Handlers that do not read request-time APIs (`cookies()`, `headers()`) must call `await connection()` from `next/server` so Next.js does not attempt to prerender them at build time.
+- Route Handler `params` is a **Promise** (`await params`). `LayoutProps<"/">` is a global typed helper.
+- With `cacheComponents: true`, `runtime` / `dynamic` route-segment exports are not used, and Route Handlers that do not read request-time APIs must `await connection()`. `route()` does this for every handler.
+- Reading `cookies()` or other request data in a Server Component requires a `<Suspense>` boundary (build error otherwise).
+- `middleware` is now called `proxy` (none exists in this repo).
+- Do not remove the auto-managed blocks in `AGENTS.md`; commit the file as it is.
 
-## B.1 Formatting & syntax
+### 13.1 Formatting & syntax
 
-- Double quotes, semicolons, 2-space indent, trailing commas in multi-line literals, ~90–100 column soft limit (prettier-style wrapping as seen in current files).
-- `const` by default; no `var`; no `any` (ESLint `next/typescript` is on).
-- Function **declarations** for components and exported actions (`function SessionView`, `export function createSession`); **arrow functions** only for tiny pure helpers and constants (`const fmtDate = …`, `const cx = …`).
-- Early returns over nested `if`. Optional chaining / nullish coalescing as in current code (`?? null`, `.at(-1)?.id`).
-- Section dividers in long files use `/* ---------------------------------- actions --------------------------------- */`.
+- Double quotes, semicolons, 2-space indent, trailing commas in multi-line literals, ~90–100 column soft wrap. Prettier is **not installed**; match the surrounding file.
+- `const` by default, no `var`, **no `any`** (`eslint-config-next/typescript`).
+- Function **declarations** for components and exported actions; arrow functions only for tiny pure helpers/constants (`const cx = …`, `const fmtDate = …`).
+- Early returns over nested `if`. Section dividers in long files: `/* ---- buttons ---- */`.
+- Empty `catch {}` only where failure is truly ignorable (e.g. `JSON.parse` of an error body in `api.ts`).
 
-## B.2 Files, folders, naming
+### 13.2 Files, folders, naming, imports
 
-```
-app/                 routes, metadata, route handlers (thin)
-components/          PascalCase.tsx, one main component per file
-lib/                 lowercase single-word files: types.ts store.ts match.ts ui.ts site.ts
-lib/server/          server-only code (new)
-prisma/              schema, migrations, seed (new)
-```
+- Components: `components/<feature>/PascalCase.tsx`, one main component per file, **named export**. `export default` only for route roots (`MatchApp`, `TreasuryApp`, `AdminsApp`) and Next special files.
+- A helper used by one file stays in that file; promote it to its own file when reused. Feature-only hooks sit next to the feature (`useSessionFilters.ts`, `useTreasuryFilters.ts`); pure feature helpers likewise (`period.ts`, `session-date-range.ts`).
+- Lib files are lowercase, short (`match.ts`, `format.ts`); domain code goes in `lib/data/<domain>-actions.ts`. Server-only code goes in `lib/server/` and starts with `import "server-only";`.
+- Hooks start with `use`; actions are verbs (`assignMatch`, `finishMatch`); booleans read as state (`creating`, `showHistory`); callbacks are `onX` (`onClose`, `onSaved`).
+- Use the `@/` alias for anything outside the same folder; `./Name` for siblings in the same folder, `../Name` for the parent feature folder. Use `import type` for type-only imports.
+- Typical import order: `react` → `next/*` → `@/components/*` → `@/lib/*` values → `import type` from `@/lib/types` → relative siblings.
+- New query → `lib/data/queries.ts` + a key in `lib/query.ts`. New action → `lib/data/<domain>-actions.ts` and re-export through `lib/store.ts`.
 
-- Components: `components/PascalCase.tsx`, **named export** (`export function Modal`). Only the root screen of a route uses `export default` (like `MatchApp`). Helper components used by one file stay in that file (`Slot` in `NextMatch.tsx`, `SessionView` in `MatchApp.tsx`); promote to its own file when reused (as `Modal`).
-- Lib files: lowercase, single word where possible (`match.ts`, `store.ts`). New ones follow: `schemas.ts`, `api.ts`, `query.ts`, `auth.ts` (client hook), `format.ts` (currency/date helpers).
-- Hooks start with `use`; actions are verbs (`createSession`, `removeGame`); booleans read as state (`creating`, `editing`, `showHistory`); callbacks are `onX` (`onClose`, `onShuffle`, `onStarted`).
-- Import alias `@/` for everything outside the same folder; `./Name` for sibling components.
-- Import order: `react` → `next/*` → `@/lib/*` (values) → `@/lib/types` (`import type`) → sibling components → `@/lib/ui`. Use `import type` for type-only imports.
+### 13.3 Components
 
-## B.3 Components
+- Every client component file starts with `"use client";`. `app/**/page.tsx`, `layout.tsx`, `route.ts` do **not**.
+- Props are typed **inline in the signature** and destructured.
+- Keep state local and minimal; derive instead of store (`useMemo` for `rec`, `queue`).
+- Hooks stay above any early return; filter state lives in the component that calls the query hook.
+- Dialogs use `Dialog` / `ConfirmDialog` from `components/ui/Dialog.tsx`; never `window.confirm`, `alert` or `prompt`. Forms use `<form onSubmit>` with `e.preventDefault()` and validate with the shared Zod schema (`safeParse` → inline `errorNotice`).
+- Toasts: call `useToast()` and `showToast(msg)`. No local toast state, no toast library.
+- Async actions: set a busy flag, `try { await action() } catch (err) { showToast(err instanceof Error ? err.message : "…") } finally { clear busy }`, and show the `spinner` class on the button.
+- Give key buttons/inputs a kebab-case DOM `id` and **never rename existing ones**: `new-session`, `logout-btn`, `admin-login-btn`, `mobile-menu-btn`, `match-history`, `edit-players`, `session-settings`, `session-status`, `shuffle`, `add-to-queue`, `assign-court`, `confirm-assign`, `queue-add-btn`, `treasury-add`, `treasury-add-income`, `treasury-submit`, `add-admin-btn`, `login-submit`, `save-roster`, `save-settings`, `save-password`, and the matching `aria-labelledby` ↔ title-`id` pairs (`courts-title`, `queue-title`, `grid-title`, `entries-title`, …).
+- Icon-only buttons need `aria-label`. Inputs use a wrapping `<label>` with `fieldLabel`, or `sr-only` text.
+- Copy: English, sentence case; `＋` (full-width plus) for add actions, `·` as separator, `…` for in-progress, curly quotes “ ”, `&apos;` in JSX, arrows `←` `→`, `▶` `✓` `▲` `▼` as in existing buttons.
+- Loading placeholders: use `aria-busy="true"` and never leave a screen blank. Today this is `shimmerCard`; new loading UI should follow the frame-first approach in `PERFORMANCE_PLAN.md` (skeleton shaped like the final layout, same dimensions, so nothing shifts when data arrives).
 
-- Every client component file starts with `"use client";` (current convention, even for leaf components). `app/**/page.tsx`, `layout.tsx`, `route.ts` do **not**.
-- Props are typed **inline in the signature**, destructured:
-  `export function RosterDialog({ session, onClose }: { session: Session; onClose: () => void })`.
-- Keep state local and minimal (`useState`); derive instead of storing (`useMemo` for `rec`, `nextUp` as in `SessionView`).
-- Dialogs: wrap in `Modal` (`title`, `description`, `onClose`); footer uses `modalActions` with **Cancel** `btn("light")` then the primary action `btn("primary")`. Forms use `<form onSubmit>` with `e.preventDefault()`; simple confirm dialogs use `window.confirm`.
-- Give key buttons/inputs a kebab-case `id` (`new-session`, `start-match`, `roster-text`). Continue the pattern (`assign-court`, `add-to-queue`, `login-submit`, `treasury-add`).
-- Toasts: one local `toast` state + `showToast()` in the screen component, rendered in the existing `role="status"` div. Do not add a toast library.
-- Loading: `useHydrated()`/query status → render the shimmer skeleton card (`animate-shimmer`, `aria-busy="true"`), never a blank screen.
-- Icon-only buttons need `aria-label` (and `title` when hover help helps). Inputs use `<label>` wrapping with `fieldLabel`, or `sr-only` text.
-- Text copy: English, sentence case, `＋` (full-width plus) for add actions, `·` as separator, curly quotes `“ ”`, escape apostrophes in JSX with `&apos;`.
+### 13.4 Styling
 
-## B.4 Styling
+- **Tailwind utility classes only**, in `className`. No CSS modules, no new global CSS. `globals.css` stays "element-level defaults + `@theme` tokens + keyframes".
+- Reusable class strings live in **`lib/ui.ts`** (`btn(variant, size)`, `pill(variant)`, `card`, `cardHead`, `fieldInput`, `courtCard`, `lockedHead`, `shimmerCard`, …). If a class string appears a third time, move it there. Conditional classes use `cx(...)`.
+- Colours: existing palette (`#204a74` ink, `#5da5e4` accent, `#eaf5ff` surface, `#b5524f` danger) or theme tokens (`text-ink`, `text-muted`, `warn`, `ok`, `shadow-card`, `animate-shimmer`). A new colour is introduced as a `@theme` token, not a one-off hex, unless it matches an existing literal.
+- Responsive: primary breakpoint `max-[860px]:`; secondary `max-[960px]`, `max-[600px]`, `max-[420px]`. Card spacing literals follow the pattern `px-[22px] max-[860px]:px-[15px]`.
+- Fonts: `font-display` (Manrope) for headings and numbers, default sans (DM Sans) for body.
+- Locked column: `lockedHead` tint, lock glyph, `disabled:cursor-not-allowed` checkboxes.
 
-- **Tailwind utility classes only**, in `className`. No CSS modules, no new global CSS. `globals.css` stays "element-level defaults + `@theme` tokens only".
-- Reusable class strings live in **`lib/ui.ts`** and are exported as constants or small functions (`btn(variant, size)`, `pill(variant)`, `card`, `fieldInput`). If a class string appears a 3rd time, move it to `lib/ui.ts`. New additions follow the same shape (e.g. `courtCard`, `lockedHead`, `moneyText`).
-- Conditional classes via `cx(...)`, never string concatenation.
-- Colours: use the existing palette (`#204a74`, `#5da5e4`, `#eaf5ff`, `#b5524f` for danger, theme tokens `text-muted`, `warn`, `ok`). Introduce a new colour only as a `@theme` token.
-- Responsive: single breakpoint `max-[860px]:`; spacing literals like `px-[22px]` / `max-[860px]:px-[15px]` follow the card pattern.
-- Fonts: `font-display` for headings/numbers, default sans for body.
-- Locked state styling: tinted header (`bg-[#f4f7fa]`), `🔒`/lock glyph, disabled checkbox (`disabled:cursor-not-allowed`), no new colour families.
+### 13.5 State, data & logic separation
 
-## B.5 State, data & logic separation
+- **Pure logic in `lib/*.ts`** (no React, no `window`, deterministic): `lib/match.ts`, `lib/format.ts`, `lib/date.ts`. New court/queue/fairness helpers go in `lib/match.ts` and take a `Session`.
+- **UI never calls `fetch`.** It calls actions/hooks from `@/lib/store` (data) and `@/lib/auth` (auth). `fetch` exists only in `lib/api.ts`.
+- Server data → TanStack Query. UI-only state → Zustand `ui-store`. Per-device preference → the `current-session` module. Never mirror server data into Zustand or `useState`.
+- Dates are **`yyyy-mm-dd` strings** end to end on the client (`todayISO()`, `fmtDate` with the `T12:00:00` trick); timestamps are epoch ms only where a time is displayed. IDs are opaque server strings.
+- Polling intervals, query keys and optimistic updates are centralised (`lib/data/queries.ts`, `lib/query.ts`, `lib/data/match-actions.ts`); do not scatter them into components.
 
-- **Pure logic in `lib/*.ts`** (no React, no `window`, deterministic). `lib/match.ts` stays pure; new helpers (e.g. `courtsOf(session)`, `queueOf(session)`, `busyPlayers(session)`) are added there and take a `Session`.
-- **UI never calls `fetch` directly.** It calls action functions exported from `lib/store.ts` (same names as today: `createSession`, `removeGame`, `togglePlayed` → now `setPlayed`, …) and reads data via hooks (`useDB`/`useSession`/`useAuth`).
-- Keep `useSyncExternalStore` as the subscription primitive (as in the current store) for the tiny query cache in `lib/query.ts`.
-- Dates are **`yyyy-mm-dd` strings** end-to-end on the client (`todayISO()`, `fmtDate` with the `T12:00:00` trick). Time-of-day only where a timestamp is shown (epoch ms → `en-GB` time).
-- IDs are opaque strings from the server; the client no longer generates ids (remove `uid()` from the client once the API owns ids).
+### 13.6 Types & comments
 
-## B.6 Types
+- `interface` for object shapes, `type` for unions/tuples/aliases. Types shared by client and server live in `lib/types.ts`; inferred Zod types live next to the schema in `lib/schemas.ts`.
+- Doc-comment **why**, not what, on non-obvious fields (`/** Only set when … */`). Short plain-English block comment above non-obvious functions (`recommend`, `replaceSessionRoster`). No commented-out code; no TODO without an owner or issue.
 
-- `interface` for object shapes, `type` for unions/tuples/aliases (`Team`), matching `lib/types.ts`.
-- Doc-comment **why** on non-obvious fields with `/** … */` (see `Game.teams`, `Game.createdAt`).
-- Types shared by client and server live in `lib/types.ts`; inferred Zod types (`z.infer`) live next to the schema in `lib/schemas.ts`.
+### 13.7 Server code
 
-## B.7 Comments
+- Layers: **route handler (thin)** → **service** (`lib/server/{sessions,games,treasury,admins,auth}.ts`) → **Prisma**. Handlers only declare `route({ roles, body }, handler)`, call one service, and return `ok()` / `created()`. Business rules live in services.
+- Every handler uses `route()` from `lib/server/http.ts`. `roles` is mandatory (`"public"` must be explicit). Throw `new HttpError(status, "CODE", "message", fields?)`; never hand-build error JSON.
+- One Prisma client (`lib/server/db.ts`, `globalThis` singleton). Multi-step writes use `prisma.$transaction`; retry once on a `P2002` unique race when allocating `seq`.
+- Map Prisma rows to DTOs in `lib/server/dto.ts`; never return Prisma models (no `passwordHash`, audit ids).
+- No raw SQL. Secrets only from `process.env`; never log bodies, passwords or tokens.
+- Passwords: `bcrypt` cost 12, ≤ 72 bytes. Tokens: random 32 bytes base64url, store only SHA-256.
+- Soft delete (`deletedAt`) for users and treasury entries; filter `deletedAt: null` in every read.
 
-- Short, explain **why** not what, in plain English; block comment above a function when behaviour is non-obvious (see `setRoster`, `recommend`). No commented-out code. No TODO without an owner/issue.
+### 13.8 Validation (Zod)
 
-## B.8 Lint & checks
-
-- `npm run lint` must pass (`next/core-web-vitals` + `next/typescript`). Empty `catch {}` is tolerated only where failure is truly ignorable (as in `parse`); anywhere else handle or rethrow.
-- Run `npx tsc --noEmit` before every commit.
-
-## B.9 Server code (new)
-
-- All server-only modules live in **`lib/server/`** and start with `import "server-only";`. Never import them from a `"use client"` file.
-- Layers: **route handler (thin)** → **service function** (`lib/server/sessions.ts`, `games.ts`, `treasury.ts`, `admins.ts`) → **Prisma**. Handlers only: authenticate/authorize, parse with Zod, call one service, map to DTO, return JSON. Business rules live in services, not in handlers and not in components.
-- Single Prisma client in `lib/server/db.ts` using the `globalThis` singleton pattern so dev hot-reload does not exhaust connections.
-- `lib/server/http.ts` exposes one wrapper used by **every** handler:
-
-```ts
-// sketch — keeps every handler 5–15 lines
-export const POST = route({ roles: ["ADMIN", "SUPERADMIN"], body: assignInput },
-  async ({ body, params, user }) => {
-    const { id } = await params;
-    return created(await assignGame(id, body, user));
-  });
-```
-
-  The wrapper: awaits `connection()` from `next/server` before the `try/catch` block (so Next.js prerendering handles `HANGING_PROMISE_REJECTION` cleanly under `cacheComponents`), runs the CSRF guard for non-GET, resolves the user from the cookie (DB lookup of `tokenHash`, joins `User`, requires `deletedAt = null` and unexpired token), checks the role, parses the body with Zod (400 on failure), catches `HttpError`/Prisma errors into the standard error JSON, and sets `Cache-Control: no-store`.
-- Throw `new HttpError(409, "GAME_LOCKED", "…")` from services; never return ad-hoc error shapes.
-- Authorization is **deny-by-default**: a handler without a `roles` option is a compile error (`roles: "public"` must be explicit).
-- DTO mapping (Prisma row → `Session`/`Game`/…) lives in `lib/server/dto.ts`; never return Prisma models directly (avoids leaking `passwordHash`, audit ids).
-- Multi-step writes use `prisma.$transaction`. Retry once on `(sessionId, seq)` unique violation when allocating `seq`.
-- No raw SQL unless a constraint cannot be expressed in Prisma; if used, parameterised (`Prisma.sql`).
-- Secrets only from `process.env`; `.env*` stays git-ignored; commit a `.env.example` (add `!.env.example` to `.gitignore`).
-- Passwords: `bcrypt.hash(password, 12)` / `bcrypt.compare` (async); limit input to 72 bytes in Zod. Tokens: `crypto.randomBytes(32).toString("base64url")`; store SHA-256 hex. If the host cannot load the native `bcrypt` binary, swap to `bcryptjs` (same API) — nothing else changes.
-- Do not log request bodies, passwords, or tokens.
-
-## B.10 Validation (Zod)
-
-- One schema = one source of truth in `lib/schemas.ts`, used by **both** the form (`schema.safeParse` → inline error text under the field, existing `notice` style) and the route handler.
-- Trim and normalise in the schema (`.trim()`, `.toLowerCase()`), not scattered in components.
+- One schema = one source of truth in `lib/schemas.ts`, used by the form and the route handler. Trim/normalise in the schema, not in components.
 - Never trust client-derived values: counts, balances, roles, `locked`, `status` are computed server-side.
-- Error `fields` in API responses come from `error.flatten().fieldErrors`.
+- Error `fields` in API responses are the first message per issue path.
 
-## B.11 Client data layer (`@tanstack/react-query`)
+### 13.9 Checklist for every new route
 
-- `lib/api.ts`: `api<T>(path, { method, body })` wrapper around `fetch` (`credentials: "same-origin"`, JSON headers, throws `ApiError { status, code, message, fields }`).
-- `lib/query.ts` & `components/QueryProvider.tsx`: exports the shared TanStack `queryClient` (`QueryClient`) and typed `queryKeys`, provided at the root in `app/layout.tsx` via `QueryProvider`. Every data fetch (`useAuth`, `useSessionsList`, `useSessionSummary`, `useSessionDetail`, `useTreasury`, `useAdmins`) uses TanStack `useQuery` (`refetchInterval` with `refetchIntervalInBackground: false`, `refetchOnWindowFocus: true`).
-- Mutations & Loading States: call API → `queryClient.invalidateQueries`; for ticks/court/queue actions apply optimistic `queryClient.setQueryData` with rollback on error, and show inline `spinner` loading states on every action button so interactions never feel laggy.
-- `lib/auth.ts` (client): `useAuth()` returns `{ user, loading }` from `/api/auth/me` via TanStack `useQuery`; `login()`, `logout()` actions update/invalidate `queryClient`. UI gates with `user?.role`, never with anything stored in the browser.
-- Selected-session id stays in `localStorage` (key `mbg-current-v2`) as a per-device preference only; no data is stored there anymore.
+1. `app/(shell)/<route>/page.tsx` is a server component that renders one client root. Private pages export `robots: { index: false, follow: false }` and are added to `robots.ts` `disallow`.
+2. Add the nav entry in `components/layout/nav-items.ts` (`superadminOnly` if needed).
+3. Every new API route has `roles`, a Zod schema for any input, returns a DTO, and has been exercised for 401 / 403 / 400 / 409 (curl or the UI).
+4. Never put tokens, passwords or role decisions in `localStorage`, URLs or response bodies.
 
-## B.12 Routing, SEO & security checklist for every new route
+### 13.10 Quality gates & git
 
-- `app/<route>/page.tsx` = server component exporting `metadata` and rendering one client root. Private pages: `robots: { index: false, follow: false }`.
-- Update `robots.ts` (disallow `/api`, `/treasury`, `/admins`); `sitemap.ts` stays `/` only.
-- Every new API route: has `roles`, a Zod schema for any input, a test through `curl` for 401/403/400/409, and returns a DTO.
-- Never put tokens, passwords, or role decisions in `localStorage`, URLs, or response bodies.
-
-## B.13 Git hygiene
-
-- Small commits per task in Part C; message format `feat(courts): assign match to court`, `fix(auth): …`, `chore(db): …`.
-- Commit `prisma/migrations/**`, `AGENTS.md`, `.env.example`; do **not** commit `.env*` or `*.tsbuildinfo` (already ignored). Add `!.env.example` to `.gitignore` so the example file can be committed.
+- Before every commit run, in order: `npx tsc --noEmit`, `npm run lint`, `npm run build`. There is no test suite, so also click through the manual checks in §16 for the area you touched.
+- Small commits, format `feat(courts): assign match to court`, `fix(auth): …`, `chore(db): …`, `refactor(ui): …`, `perf(load): …`.
+- Commit `prisma/migrations/**`, `AGENTS.md`, `.env.example`. Never commit `.env*` (except `.env.example`) or `*.tsbuildinfo`.
 
 ---
 
-# PART C — IMPLEMENTATION PLAN
+## 14. Environment, scripts & deployment
 
-Sizing: **S** ≤ half day, **M** ≈ 1 day, **L** 2–3 days. Phases are **vertical and shippable**: after each phase the app runs and can be demoed. Do not start a phase before the previous "Done when" passes.
+| Env var | Purpose |
+|---------|---------|
+| `DATABASE_URL` | Runtime connection string (use the **pooled** URL on serverless) |
+| `DIRECT_URL` | Direct connection used by Prisma migrations (required because `schema.prisma` sets `directUrl`) — **missing from `.env.example`**, see §15 |
+| `SUPERADMIN_USERNAME`, `SUPERADMIN_PASSWORD` | Used only by the seed script |
 
-## File impact map
+| Script | Does |
+|--------|------|
+| `npm run dev` / `build` / `start` / `lint` | Standard Next.js |
+| `npm run db:migrate` | `prisma migrate dev` |
+| `npm run db:seed` | `tsx prisma/seed.ts`: upserts the superadmin by username; **resets its password to the env value**, re-sets role `SUPERADMIN`, clears `deletedAt` and lockout, so re-running it is a password reset |
+| `npm run db:studio` | Prisma Studio |
+| `npm run vercel-build` | `prisma generate`, then `prisma migrate deploy` **only when `VERCEL_ENV=production`**, then `next build` |
+| `postinstall` | `prisma generate` |
 
-| File | Action | Notes |
-|------|--------|-------|
-| `lib/types.ts` | **Modify** | Add fields from A.6 (backwards-compatible) |
-| `lib/schemas.ts` | **New** | Zod schemas (A.6) |
-| `lib/store.ts` | **Rewrite internals** | Same exported action names where possible; localStorage → API |
-| `lib/api.ts`, `lib/query.ts`, `lib/auth.ts`, `lib/format.ts` | **New** | Client data layer, auth hook, `formatIDR`, date helpers |
-| `lib/match.ts` | **Modify (small)** | `busy` option; court/queue helpers |
-| `lib/ui.ts` | **Extend** | New shared class strings only |
-| `lib/site.ts` | Unchanged | |
-| `lib/server/*` | **New** | `db.ts`, `http.ts`, `auth.ts`, `password.ts`, `dto.ts`, `sessions.ts`, `games.ts`, `treasury.ts`, `admins.ts` |
-| `prisma/schema.prisma`, `prisma/seed.ts` | **New** | Seed command registered in `package.json` (`"prisma": { "seed": "tsx prisma/seed.ts" }`) |
-| `app/api/**/route.ts` | **New** | Per A.7 |
-| `app/treasury/page.tsx`, `app/admins/page.tsx` | **New** | Server shell + client root |
-| `app/layout.tsx`, `app/manifest.ts`, `app/sitemap.ts` | Unchanged | |
-| `app/robots.ts` | **Modify** | Disallow private paths |
-| `components/MatchApp.tsx` | **Modify** | Header auth, role gating, new layout order, visitor branch |
-| `components/NextMatch.tsx` | **Modify** | Replace *Start match* with *Assign to court* / *Add to queue* |
-| `components/PlayerGrid.tsx` | **Modify** | Lock UI, remove *Add game*, optimistic tick |
-| `components/HistoryDialog.tsx` | **Modify** | Status, court, lock info |
-| `components/SessionDialog.tsx` | **Modify** | Court count field; superadmin only |
-| `components/RosterDialog.tsx`, `Modal.tsx` | Minimal / unchanged | Roster becomes async with error handling; superadmin only |
-| `components/AppHeader.tsx`, `components/CourtBoard.tsx`, `CourtCard.tsx`, `QueuePanel.tsx`, `AssignDialog.tsx`, `SessionSettingsDialog.tsx`, `VisitorView.tsx`, `LoginDialog.tsx`, `PasswordDialog.tsx`, `TreasuryApp.tsx`, `TreasuryEntryDialog.tsx`, `AdminsApp.tsx`, `AdminDialog.tsx` | **New** | `AppHeader` provides the desktop header and responsive tablet/phone sidebar drawer |
-| `.gitignore`, `.env.example`, `package.json` | **Modify/New** | |
-
-## Phase 0 — Confirm & prepare (S)
-
-1. Section 0 decisions (A1–A9) are already agreed; re-open only if something changes.
-2. Read the relevant Next 16 docs listed in B.0 (the plan already verified the key points).
-3. Provision PostgreSQL (local Docker or a hosted instance; if serverless, use the provider's pooled connection string).
-4. Create a git branch `feat/v2`.
-
-**Done when:** a Postgres URL exists and the branch is created.
-
-## Phase 1 — Foundation: database & tooling (M)
-
-1. Install: `prisma@~6.19` (dev), `@prisma/client@~6.19`, `zod`, `bcrypt`; dev: `@types/bcrypt`, `tsx`. No `dotenv` and no driver adapter are needed with Prisma 6.
-2. Create `prisma/schema.prisma` from A.5 and register the seed command in `package.json`.
-3. Run first migration `init` (`prisma migrate dev --name init`). Add `!.env.example` to `.gitignore`; create `.env.example` (`DATABASE_URL`, `SUPERADMIN_USERNAME`, `SUPERADMIN_PASSWORD`).
-4. `lib/server/db.ts` (`globalThis` singleton `new PrismaClient()`).
-5. `lib/server/password.ts` (bcrypt hash/verify, cost 12) and `prisma/seed.ts` (upsert the superadmin from env; idempotent).
-6. Add scripts: `db:migrate`, `db:seed`, `db:studio`.
-
-**Done when:** `npm run build` still passes; seed creates a superadmin row; `studio` shows all tables.
-
-## Phase 2 — Server core & authentication (L)
-
-1. `lib/schemas.ts` (auth + all schemas from A.6).
-2. `lib/server/http.ts`: `HttpError`, `route()` wrapper (CSRF guard, auth lookup, role check, Zod parse, error mapping, `no-store`).
-3. `lib/server/auth.ts`: create/verify/revoke token, cookie helpers (`cookies()` from `next/headers`, awaited), lockout logic (FR-AUTH-7).
-4. Routes: `auth/login`, `auth/logout`, `auth/me`, `auth/password`.
-5. Verify with `curl`: login sets `HttpOnly` cookie; `me` works; wrong password ×5 → 429; logout revokes; foreign `Origin` → 403.
-
-**Done when:** acceptance #2 and the lockout and CSRF behaviour pass via curl.
-
-## Phase 3 — Sessions, roster & match backend (L)
-
-1. `lib/server/dto.ts` + `lib/types.ts` additions.
-2. `lib/server/sessions.ts`: list, summary (public: counts + `queued` + courts + queue), detail, create (with roster), patch (court-count guard), delete, roster diff (keep ids by name; unlock affected games).
-3. `lib/server/games.ts`:
-   - `assignGame` (court or queue; busy/occupied checks; allocate `seq`; create ticks with teams; `locked = true`; queue order = max+1),
-   - `updateGame` (replace players/teams, re-lock at 4),
-   - `startGame` (queue → court), `finishGame`, `reorderQueue`, `deleteGame` (+ queue compaction), `clearGames`,
-   - `setPlayed` (idempotent; reject if locked; clear teams; auto-lock at exactly 4), `setLocked`.
-4. Routes for every `sessions/*` and `games/*` entry in A.7.
-5. Curl matrix: each rule in A.9 (`COURT_OCCUPIED`, `PLAYER_BUSY`, `GAME_LOCKED`, role 403s, visitor 401 on detail but 200 on summary).
-
-**Done when:** every row in A.9 behaves as specified through the API alone; summary endpoint exposes only names, counts, `queued`, courts and queue.
-
-## Phase 4 — Client data layer, role-aware shell, parity (L)
-
-Goal: the app works again on the new backend with **v1 feature parity** for admins, plus the visitor view.
-
-1. `lib/api.ts`, `lib/query.ts`, `lib/auth.ts`, `lib/format.ts`.
-2. Rewrite `lib/store.ts` internals to call the API; keep exported names (`createSession`, `deleteSession`, `setRoster`, `removeGame`, `clearGames`, `selectSession`, `parseNames`, `todayISO`); `togglePlayed` → `setPlayed(sessionId, gameId, playerId, checked)`. Current-session id stored under `mbg-current-v2`.
-3. `LoginDialog`, header changes in `MatchApp` (login/logout, role pill), skeleton while loading.
-4. `VisitorView` bound to `/summary` (10 s polling): courts, queue (flagged), counts.
-5. Admin path: `SessionView` uses `GET /sessions/:id` (5 s polling); gate buttons by role (session create/edit/roster/delete only for superadmin); `SessionDialog` gets the court count; add `SessionSettingsDialog`.
-6. Keep `NextMatch`/`PlayerGrid` working temporarily (blank add-game stays until Phase 5 so parity can be tested).
-
-**Done when:** a visitor sees counts, courts and queue; a superadmin can create sessions and edit rosters; an admin can open a session, tick and view history, and gets 403 on session management; data survives reload and is shared across two browsers.
-
-## Phase 5 — Courts, queue, recommendation hook-up & locked checklist (L)
-
-1. `lib/match.ts`: `busy` option in `recommend` (FR-REC-2); helpers `courtsOf`, `queueOf`, `busyPlayers`.
-2. `AssignDialog` (court picker / queue mode, Team A/B selects excluding already-picked players, "Use recommendation" prefill, busy hints, Zod-validated submit).
-3. `CourtBoard` + `CourtCard` (occupied/empty states, Edit, Finish, Play next in queue).
-4. `QueuePanel` (list, ▲ ▼, Edit, ✕, Add to queue).
-5. `NextMatch`: replace the start button with **Assign to court** / **Add to queue** (prefilled); keep Shuffle and waiting list; toast copy updated.
-6. `PlayerGrid`: remove *Add game*; lock icon per column, disabled checkboxes when locked, optimistic ticks with rollback; header shows `ticked/total`.
-7. Reorder `SessionView` sections: Courts → Queue → Next match → Games played. Update `HistoryDialog` (status pill, court, lock).
-8. Implement the **Queued flag** (FR-MAT-11, FR-CHK-9): pill on queued columns/items, `+N queued` count hint, shared `pill("warn")`-style class; reuse in the visitor view.
-9. Add shared class strings to `lib/ui.ts` as needed.
-
-**Done when:** acceptance #3 and #4 pass end-to-end on a phone-width viewport.
-
-## Phase 6 — Treasury (M)
-
-1. `lib/server/treasury.ts`: list + aggregate balance, create (admin), update/soft-delete (superadmin).
-2. Routes `treasury`, `treasury/entries`, `treasury/entries/[id]`.
-3. `lib/format.ts` `formatIDR`; `app/treasury/page.tsx` (noindex) + `TreasuryApp` + `TreasuryEntryDialog` (Zod-validated, date defaults to today, no time input).
-4. Superadmin-only Edit/Delete controls; confirm with `window.confirm`.
-
-**Done when:** acceptance #5 (treasury part) and #7 pass; admin gets 403 on edit/delete via curl.
-
-## Phase 7 — Admin management (M)
-
-1. `lib/server/admins.ts`: list, create (`ADMIN` only), soft delete (guard self/superadmin; revoke tokens), reset password.
-2. Routes `admins`, `admins/[id]`, `admins/[id]/password`.
-3. `app/admins/page.tsx` (noindex) + `AdminsApp` + `AdminDialog`; `PasswordDialog` for own password (header menu).
-
-**Done when:** acceptance #6 passes (deleted admin is kicked on next request and cannot log in).
-
-## Phase 8 — Hardening, SEO, legacy import, release (M)
-
-1. Update `robots.ts` (disallow private paths); verify `/treasury` and `/admins` metadata `noindex`.
-2. Review every route for `roles`, Zod schema, DTO-only responses, `no-store`.
-3. **Optional legacy import:** **superadmin-only** "Import from this device" button reads `mbg-match-v1` once and POSTs to a one-off `POST /api/import` (sessions → `DONE` games, locked when exactly 4 ticks). Remove the endpoint after migration.
-4. Manual QA script (below), `npm run lint`, `npx tsc --noEmit`, `npm run build`.
-5. Deploy: set env vars, `prisma migrate deploy`, run the seed once, change the seeded superadmin password immediately.
-
-**Done when:** all acceptance criteria A.10 pass on the production build.
-
-## Manual QA script (use after Phases 5–8)
-
-1. Visitor: open `/` logged out → counts, courts and queue (queued items flagged) only; try `/treasury` and `/admins` → blocked message; `GET /api/sessions/:id` → 401.
-2. Superadmin: create session (2 courts, 8 players). Admin: assign recommended match to court 1 → assign manual match to court 2 → add third match to queue (flagged "Queued") → try assigning a player who is on court 1 to court 2 (expect `PLAYER_BUSY`) → finish court 1 → *Play next in queue* (flag disappears). Admin attempts session edit/roster/delete → 403.
-3. Checklist: columns with 4 ticks are locked after reload; tick attempt on locked column fails; unlock → untick one → tick another → auto-locks again.
-4. Two browsers (two admins): tick the same cell at the same time → no inversion; assign to the same court → one gets `COURT_OCCUPIED` and refreshes.
-5. Superadmin roster edit removes a player → their ticks gone, affected columns unlocked.
-6. Court count (superadmin): lower below an occupied court → blocked.
-7. Treasury: add expense and income → balance correct; superadmin edits and deletes → balance updates; admin cannot.
-8. Superadmin: create admin → admin logs in → soft delete → admin's next request is 401 and login fails → superadmin cannot delete self.
-9. Cookie: `document.cookie` does not show the token; cookie is `HttpOnly`, `SameSite=Strict`, `Secure` on production.
-
-## Risks & mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Next 16 conventions differ from memory | Read the local docs before each Next-specific task (B.0); small steps with build after each phase. |
-| Prisma 6 is not the newest major | Pin `~6.19`; the schema is portable if you upgrade later (adapter + config changes only). |
-| Native `bcrypt` binary missing on host | Swap to `bcryptjs` (same API); no other change. |
-| Serverless DB connection limits | Use a pooled connection URL and the single-client singleton. |
-| Polling cost / staleness | 5 s admin / 10 s visitor, paused when tab hidden; revisit SSE only if needed. |
-| Two admins editing simultaneously | Idempotent ticks, transactions, unique constraints, 409 → refetch. |
-| Unlocked-by-mistake columns | Auto re-lock at exactly 4 ticks; server enforces the lock. |
-| Sensitive treasury data | Admin+ only, soft delete, audit columns (`createdById`, `updatedById`, `deletedById`). |
-
-## Suggested order of delivery (summary)
-
-`Phase 1 DB` → `Phase 2 Auth` → `Phase 3 Backend rules` → `Phase 4 Client layer + visitor + parity` → `Phase 5 Courts/queue/locks` → `Phase 6 Treasury` → `Phase 7 Admin management` → `Phase 8 Hardening & release`.
-
-Rough total: **≈ 12–16 working days** for one developer, dominated by Phases 2, 3, 4 and 5.
+Setup: copy `.env.example` → `.env`, fill the four variables, `npm install`, `npm run db:migrate`, `npm run db:seed`, `npm run dev`. After the first production deploy, run the seed once and change the superadmin password from the UI.
 
 ---
 
-## Implementation Status (Updated)
+## 15. Known deviations, tech debt & open items
 
-All phases (**Phase 1 through Phase 8**) have been implemented in the codebase:
+Status after comparing the code to the previous SRD, `REFACTOR_NOTES.md`, and the 2026-11-12 Lighthouse reports.
 
-- **Phase 1 — Foundation (`prisma/schema.prisma`, `prisma/seed.ts`, `lib/server/db.ts`, `lib/server/password.ts`, `.env.example`, `.gitignore`)**: ✅ Implemented (`@prisma/client@~6.19`, `prisma@~6.19`, `zod`, `bcrypt`, `server-only`, `tsx`).
-- **Phase 2 — Server Core & Auth (`lib/schemas.ts`, `lib/server/http.ts`, `lib/server/auth.ts`, `app/api/auth/**`)**: ✅ Implemented (`HttpOnly` `SameSite=Strict` cookie, SHA-256 token hashing, 5-attempt / 15-minute lockout, CSRF origin & content-type guard, `await connection()` for `cacheComponents` compatibility).
-- **Phase 3 — Sessions, Roster & Match Backend (`lib/types.ts`, `lib/server/dto.ts`, `lib/server/sessions.ts`, `lib/server/games.ts`, `app/api/sessions/**`, `app/api/games/**`)**: ✅ Implemented (court assignment, queue ordering & compaction, `COURT_OCCUPIED` / `PLAYER_BUSY` / `GAME_LOCKED` guards, `SessionStatus` `OPEN`/`CLOSED` visibility where `CLOSED` sessions are restricted to `ADMIN`/`SUPERADMIN`, paginated & filterable `GET /api/sessions`, roster diff with automatic unlock of affected games, idempotent ticks with auto-lock at 4 players).
-- **Phase 4 — Client Data Layer & Visitor View (`lib/api.ts`, `lib/query.ts`, `lib/auth.ts`, `lib/format.ts`, `lib/store.ts`, `components/Dialog.tsx`, `components/VisitorView.tsx`, `components/LoginDialog.tsx`, `components/SessionDialog.tsx`, `components/SessionSettingsDialog.tsx`)**: ✅ Implemented (5 s admin / 10 s visitor polling paused when hidden, focus refetch, role-gated session controls, reusable `Dialog` and `ConfirmDialog` components replacing all native `window.confirm` / `window.alert` / `window.prompt` calls, separated external visitor card grid vs. internal organiser paginated & filterable sessions table).
-- **Phase 5 — Courts, Queue, Recommendation & Locked Checklist (`lib/match.ts`, `components/AssignDialog.tsx`, `components/CourtBoard.tsx`, `components/CourtCard.tsx`, `components/QueuePanel.tsx`, `components/NextMatch.tsx`, `components/PlayerGrid.tsx`, `components/HistoryDialog.tsx`, `components/MatchApp.tsx`)**: ✅ Implemented (`busy` filter in `recommend()`, Courts → Queue → Next match → Games played layout, `Queued` pills and `+N queued` player badges, column lock/unlock UI & optimistic ticks).
-- **Phase 6 — Treasury (`lib/server/treasury.ts`, `app/api/treasury/**`, `app/treasury/page.tsx`, `components/TreasuryApp.tsx`, `components/TreasuryEntryDialog.tsx`)**: ✅ Implemented (server-side IDR balance aggregation, 4-card dashboard with all-time cash left & period income/spent/net flow, 6-month interactive cashflow chart, periodical & month/date-range/type/search filters, server-side pagination with `@tanstack/react-query` `keepPreviousData`, `INCOME`/`EXPENSE` entries, superadmin edit & soft-delete).
-- **Phase 7 — Admin Management (`lib/server/admins.ts`, `app/api/admins/**`, `app/admins/page.tsx`, `components/AdminsApp.tsx`, `components/AdminDialog.tsx`, `components/PasswordDialog.tsx`)**: ✅ Implemented (admin creation, password reset, soft-delete with immediate token revocation, self-password change).
-- **Phase 8 — SEO & Hardening (`app/robots.ts`, `app/treasury/page.tsx`, `app/admins/page.tsx`)**: ✅ Implemented (`/api/`, `/treasury`, `/admins` disallowed in `robots.ts` and marked `noindex`).
+**Performance (see `PERFORMANCE_PLAN.md`)**
 
-### Database Setup Quickstart
+| # | Finding |
+|---|---------|
+| P1 | Prerendered HTML = header + one generic 320 px shimmer card. The shimmer gradient is white→near-white on a white card, so it reads as a blank card. |
+| P2 | `/` for organisers shows two stacked shimmers (`AdminSessionContainer` + `SessionsDirectory`) that resolve at different times → CLS 0.931. |
+| P3 | `AppHeader` ignores `authLoading`, so the logged-out "Admin login" shows first, then swaps to the organiser controls. |
+| P4 | Request waterfall: HTML → JS → hydrate → `/api/auth/me` → data requests. |
+| P5 | Zod (~39 KiB gzip) and all dialog code ship in the initial JS of every route, because `GlobalDialogs` (in the shell layout) and `SessionView` import dialogs statically. |
+| P6 | `getTreasurySummary` reads **every** active entry to build the 6-month chart (unbounded). |
 
-1. Copy `.env.example` to `.env` and set `DATABASE_URL`, `SUPERADMIN_USERNAME`, and `SUPERADMIN_PASSWORD`.
-2. Run `npm run db:migrate -- --name init` to apply the schema to your PostgreSQL instance.
-3. Run `npm run db:seed` to create/update the initial Superadmin account.
+**Correctness / security observations (none blocking)**
+
+| # | Finding | Severity |
+|---|---------|----------|
+| C1 | `429 TOO_MANY_ATTEMPTS` is only returned for existing active accounts, so it reveals that a username exists (FR-AUTH-6 intent is a uniform response). | Low |
+| C2 | `PATCH /games/:id` does not check match status; the API can edit a `DONE` match (the UI never offers it). | Low |
+| C3 | `PUT /admins/:id/password` does not restrict the target role to `ADMIN`; a superadmin could reset another superadmin. | Low |
+| C4 | `.env.example` lacks `DIRECT_URL`, which `schema.prisma` requires for migrations. | Docs |
+| C5 | Re-running `db:seed` silently resets the superadmin password. | Ops note |
+| C6 | Root layout sets `alternates.canonical: "/"`, which `/treasury` and `/admins` inherit; with `noindex` this produced Lighthouse SEO 61 on `/treasury` ("blocked from indexing", canonical points to the homepage). The noindex is intentional; override the canonical per private page if the score matters. | SEO |
+
+**Housekeeping**
+
+- `package.json` name is still `sc`; `README.md` is the create-next-app boilerplate; five unused default SVGs remain in `public/`.
+- `components/ui/Modal.tsx` is an unused alias of `Dialog`.
+- Preserved oddities from the refactor (do not "fix" silently): `HistoryDialog.handleConfirmRemove` has no `catch`/toast; `ExternalMatchesView` keeps polling the sessions list while `VisitorView` is open; toast text clears at fade-out start.
+- **Performance (resolved items from `PERFORMANCE_PLAN.md`)**: P1 (generic blank shimmer → frame-first shaped skeletons + `data-skeleton`), P2 (CLS in header/worksheets → stable header skeleton pills + shaped screen skeletons), P3 (`AppHeader` auth pop → fixed-size auth placeholders while `loading`), P4 (sequential auth waterfall → parallel `QueryProvider` prefetching + `mbg-boot-v1` hint + removed top-level `useHydrated` block), P5 (initial Zod + dialog JS weight → `next/dynamic` on 9 non-confirm dialogs + idle warm-up + `experimental.inlineCss: true`), P6 (unbounded 6-month chart scan → bounded Prisma `groupBy`).
+- No automated tests (unit or E2E); `REFACTOR_PLAN.md` §6 holds the manual regression checklist.
+- Not implemented from the old plan: the optional legacy `localStorage` import endpoint (dropped).
+
+---
+
+## 16. Acceptance criteria
+
+1. A visitor opening `/` sees open sessions only; inside a session they see names, counts, courts and queue (queued items flagged) and nothing else. `GET /api/sessions/:id` without a cookie → 401; `GET /api/sessions/:id/summary` of a closed session → 403 `SESSION_CLOSED`.
+2. Logging in sets the `mbg_session` cookie as `HttpOnly` (not in `document.cookie`), `SameSite=Strict`, `Secure` in production; logout removes it and revokes the token.
+3. A superadmin creates a session (courts, status, roster). An admin can then: assign matches to two courts, queue a third (flagged "Queued"), finish one, promote the queued match (flag disappears), tick/untick and see the lock behaviour, close/reopen the session. Visitors see courts, queue and counts update within ~10 s.
+4. A match with exactly 4 ticks is locked after reload; unlocking persists; the server rejects ticks while locked (409).
+5. An admin gets 403 on session create/edit(non-status)/roster/delete, treasury edit/delete and admin management; a superadmin succeeds.
+6. Soft-deleting an admin logs them out on their next request and blocks re-login; a superadmin cannot delete themselves.
+7. After 5 wrong passwords an account returns 429 for 15 minutes; a foreign `Origin` on a POST returns 403.
+8. Treasury: all-time balance = income − expense of non-deleted entries; adding an entry updates cards, chart and list; filters and pagination work server-side; admin cannot edit/delete.
+9. `/` keeps metadata, JSON-LD and its sitemap entry; `/treasury` and `/admins` are `noindex` and disallowed in `robots.txt`.
+10. `npx tsc --noEmit`, `npm run lint` and `npm run build` pass.
+11. (Performance) Lighthouse mobile targets in NFR-11 are met on `/` and `/treasury` — measured as described in `PERFORMANCE_PLAN.md`.
+
+---
+
+## 17. Decision log
+
+| # | Topic | Decision (current) |
+|---|-------|--------------------|
+| A1 | Who manages sessions | Create / edit name, date, courts / roster / delete are **Superadmin-only**. Admins fully manage matches and may **open/close** a session (added after the original decision). |
+| A2 | What visitors see | Session list (open only), per-player games played, who is on each court, the queue. No checklist, history, recommendation, lock state or treasury. |
+| A3 | Treasury | Entries have a type `INCOME` / `EXPENSE`; "add a spent" = an expense; cash left is computed server-side. |
+| A4 | Assignment | Assigning (court or queue) creates the checklist column with 4 ticks. The recommendation feeds the two assign actions. |
+| A5 | No blank "add game" | Matches only come from court assignment or the queue. |
+| A6 | Queued matches | Count as played immediately but are always flagged "Queued" and exposed separately as `queued`. |
+| A7 | Treasury delete | Soft delete. |
+| A8 | Currency | IDR, whole rupiah as `Int`. |
+| A9 | Tooling | Prisma 6 (`~6.19`), bcrypt, TanStack Query, Zustand (UI only), Zod 4. |
+| A10 | Session visibility | `SessionStatus` `OPEN`/`CLOSED`; closed = organisers only. |
+| A11 | Rendering | Client-rendered screens over a thin server shell (FR-RND-1). `PERFORMANCE_PLAN.md` may revisit this for the auth read (optional phase) — update FR-RND-1/2 if adopted. |
+
+---
+
+## 18. Changes from the previous SRD
+
+| Area | Previous SRD | Now |
+|------|--------------|-----|
+| Folder layout | Flat `components/*.tsx`; `app/treasury`, `app/admins` | Feature folders; route group `app/(shell)` with shared layout; `lib/data/*`, `lib/stores/*`, `components/ui|layout|providers` |
+| Sessions | Public list of id/name/date | `SessionStatus`, admin open/close, visitor visibility rules, filters, pagination, counters |
+| Visitor / organiser `/` | One `MatchApp` | `ExternalMatchesView` (card grid) vs `InternalMatchesWorkspace` (selected session + directory table) |
+| Treasury | Balance + simple list | KPI cards, period filters, 6-month chart, server pagination |
+| Header | Single header + planned drawer | `AppHeader` + `MobileDrawer` + `SyncStatus`; overlay flags in Zustand |
+| Toasts / confirms | Local toast state; `window.confirm` | Zustand toast; `ConfirmDialog` everywhere |
+| Page layout | Courts → Queue → Next match → Games played | Courts → Queue → [Games played ‖ Next match] (side by side on desktop) |
+| API | Bare examples | Wrapped responses, `SessionsPage`, `SESSION_CLOSED` and `INVALID_STATE` codes, admin PATCH for status only |
+| `lib/store.ts` | "Rewrite internals" | Barrel over `lib/data/*` |
+| Prisma | `url` only | `url` + `directUrl` |
+| Implementation plan (old Part C) | Phases 0–8 | Removed (all done; history in git) |
+| Optional legacy import | Planned | Not implemented |
+| Coding rules | Part B, partly prescriptive | §13, rewritten to match the code |
+| New | — | §6 folder structure, §10 client architecture, §14 ops, §15 known issues, NFR-11 performance |

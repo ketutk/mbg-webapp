@@ -2,8 +2,9 @@
 
 import { selectSession, useSessionDetail } from "@/lib/store";
 import type { AuthUser } from "@/lib/types";
-import { btn, card, cx, eyebrow, shimmerCard } from "@/lib/ui";
+import { btn, card, cx, eyebrow } from "@/lib/ui";
 import { SessionView } from "./SessionView";
+import { SessionViewSkeleton } from "./SessionViewSkeleton";
 
 export function AdminSessionContainer({
   sessionId,
@@ -15,7 +16,7 @@ export function AdminSessionContainer({
   const { data: session, error, loading } = useSessionDetail(sessionId);
 
   if (loading) {
-    return <div className={shimmerCard} aria-busy="true" />;
+    return <SessionViewSkeleton onBackToList={() => selectSession(null)} />;
   }
 
   if (error || !session) {

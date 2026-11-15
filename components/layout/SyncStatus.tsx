@@ -4,7 +4,9 @@ import { useIsFetching } from "@tanstack/react-query";
 import { cx, spinner } from "@/lib/ui";
 
 export function SyncStatus({ variant }: { variant: "desktop" | "drawer" }) {
-  const isFetching = useIsFetching();
+  const isFetching = useIsFetching({
+    predicate: (query) => query.state.fetchStatus === "fetching",
+  });
 
   return (
     <span
