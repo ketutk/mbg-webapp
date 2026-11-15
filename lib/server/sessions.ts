@@ -23,6 +23,9 @@ import type {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Interactive transactions default to 5 s total; remote/pooled databases need more headroom.
+const TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 } as const;
+
 const sessionInclude = {
   players: { orderBy: { position: "asc" as const } },
   games: {
@@ -240,7 +243,7 @@ export async function updateSessionRecord(
       },
       include: sessionInclude,
     });
-  });
+  }, TX_OPTIONS);
 
   return toSessionDTO(updated);
 }
@@ -304,26 +307,37 @@ export async function replaceSessionRoster(
       });
     }
 
+    // Only touch rows that actually changed, and batch the inserts, so the
+    // number of round trips stays small even for large rosters.
+    const updates: ReturnType<typeof tx.player.update>[] = [];
+    const creates: Prisma.PlayerCreateManyInput[] = [];
     for (let i = 0; i < uniquePlayers.length; i++) {
       const { name, nameKey } = uniquePlayers[i];
       const prev = prevByKey.get(nameKey);
       if (prev) {
-        await tx.player.update({
-          where: { id: prev.id },
-          data: { name, position: i },
-        });
+        if (prev.name !== name || prev.position !== i) {
+          updates.push(
+            tx.player.update({
+              where: { id: prev.id },
+              data: { name, position: i },
+            }),
+          );
+        }
       } else {
-        await tx.player.create({
-          data: { sessionId: id, name, nameKey, position: i },
-        });
+        creates.push({ sessionId: id, name, nameKey, position: i });
       }
+    }
+
+    await Promise.all(updates);
+    if (creates.length > 0) {
+      await tx.player.createMany({ data: creates });
     }
 
     return tx.session.findUniqueOrThrow({
       where: { id },
       include: sessionInclude,
     });
-  });
+  }, TX_OPTIONS);
 
   return toSessionDTO(updated);
 }
