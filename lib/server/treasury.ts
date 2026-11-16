@@ -1,5 +1,6 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
+import { addDaysISO, getWeekMondayISO } from "@/lib/date";
 import { prisma } from "./db";
 import { fromDateStr, toDateStr, toTreasuryEntryDTO } from "./dto";
 import { HttpError } from "./http";
@@ -10,6 +11,7 @@ import type {
   TreasuryFilterParams,
   TreasuryMonthlyBucket,
   TreasurySummary,
+  TreasuryWeeklyBucket,
 } from "@/lib/types";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -24,7 +26,7 @@ async function resolveUsernames(ids: string[]): Promise<Map<string, string>> {
   return new Map(users.map((u) => [u.id, u.username]));
 }
 
-function buildRecentMonths(anchorYm: string, count = 6): string[] {
+function buildRecentMonths(anchorYm: string, count = 12): string[] {
   const [yStr, mStr] = anchorYm.split("-");
   let year = Number(yStr) || new Date().getFullYear();
   let month = Number(mStr) || new Date().getMonth() + 1;
@@ -37,6 +39,20 @@ function buildRecentMonths(anchorYm: string, count = 6): string[] {
       month = 12;
       year -= 1;
     }
+  }
+  return out;
+}
+
+function buildRecentWeeks(
+  anchorDateStr: string,
+  count = 16,
+): { weekStart: string; weekEnd: string }[] {
+  const latestMonday = getWeekMondayISO(anchorDateStr);
+  const out: { weekStart: string; weekEnd: string }[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const weekStart = addDaysISO(latestMonday, -i * 7);
+    const weekEnd = addDaysISO(weekStart, 6);
+    out.push({ weekStart, weekEnd });
   }
   return out;
 }
@@ -98,11 +114,17 @@ export async function getTreasurySummary(
   const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
   const page = Math.min(requestedPage, totalPages);
 
-  const latestYm = latestActiveEntry
-    ? toDateStr(latestActiveEntry.date).slice(0, 7)
-    : toDateStr(new Date()).slice(0, 7);
-  const monthKeys = buildRecentMonths(latestYm, 6);
-  const chartStartDate = fromDateStr(`${monthKeys[0]}-01`);
+  const latestDateStr = latestActiveEntry
+    ? toDateStr(latestActiveEntry.date)
+    : toDateStr(new Date());
+  const latestYm = latestDateStr.slice(0, 7);
+  const monthKeys = buildRecentMonths(latestYm, 12);
+  const weekRanges = buildRecentWeeks(latestDateStr, 16);
+  const firstMonthDateStr = `${monthKeys[0]}-01`;
+  const firstWeekDateStr = weekRanges[0].weekStart;
+  const chartStartDate = fromDateStr(
+    firstMonthDateStr <= firstWeekDateStr ? firstMonthDateStr : firstWeekDateStr,
+  );
 
   const [entries, recentChartSums] = await Promise.all([
     prisma.treasuryEntry.findMany({
@@ -146,14 +168,25 @@ export async function getTreasurySummary(
   const bucketMap = new Map<string, TreasuryMonthlyBucket>(
     monthKeys.map((m) => [m, { month: m, income: 0, expense: 0 }]),
   );
+  const weekBucketMap = new Map<string, TreasuryWeeklyBucket>(
+    weekRanges.map((w) => [w.weekStart, { ...w, income: 0, expense: 0 }]),
+  );
 
   for (const row of recentChartSums) {
-    const ym = toDateStr(row.date).slice(0, 7);
-    const bucket = bucketMap.get(ym);
-    if (!bucket) continue;
+    const dateStr = toDateStr(row.date);
     const sum = row._sum.amount ?? 0;
-    if (row.type === "INCOME") bucket.income += sum;
-    else bucket.expense += sum;
+
+    const bucket = bucketMap.get(dateStr.slice(0, 7));
+    if (bucket) {
+      if (row.type === "INCOME") bucket.income += sum;
+      else bucket.expense += sum;
+    }
+
+    const weekBucket = weekBucketMap.get(getWeekMondayISO(dateStr));
+    if (weekBucket) {
+      if (row.type === "INCOME") weekBucket.income += sum;
+      else weekBucket.expense += sum;
+    }
   }
 
   const userMap = await resolveUsernames(entries.map((e) => e.createdById));
@@ -168,6 +201,7 @@ export async function getTreasurySummary(
     periodIncomeCount,
     periodExpenseCount,
     monthly: Array.from(bucketMap.values()),
+    weekly: Array.from(weekBucketMap.values()),
     entries: entries.map((e) => toTreasuryEntryDTO(e, userMap)),
     totalEntries,
     page,

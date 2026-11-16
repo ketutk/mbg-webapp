@@ -168,7 +168,7 @@ Treasury is **club-wide** (not per session). Admin and Superadmin only.
 | ID | Requirement |
 |----|-------------|
 | FR-TRS-1 | Dashboard shows **all-time cash left** (Σ income − Σ expense of non-deleted entries) with an in/out ratio bar, **period income**, **period spent** (each with a transaction count) and **period net flow** for the current filter. |
-| FR-TRS-2 | A **6-month cashflow chart** (income vs expense per month, oldest → newest, anchored on the month of the newest entry). Clicking a month filters the list to it; clicking it again clears the filter. |
+| FR-TRS-2 | An interactive **cashflow chart** supporting **monthly** (up to 12 months: `6m` / `12m` / `ytd`) and **weekly** (Monday–Sunday, up to 16 weeks: `8w` / `12w` / `16w`) grouping, with a period selector showing net delta, compact IDR axis labels (`Rb` / `Jt` / `M`), hover vertical crosshair + dark tooltip with full IDR values, a `Line chart` / cards view switcher, and click-to-filter on any month or week (clicking again clears the filter). |
 | FR-TRS-3 | Filters: period preset (*All time, This month, Last month, Last 30d, Last 90d, This year, By month, Custom range*), type (*All / Income / Expense*), text search on purpose. Entries are **server-paginated** (page sizes 10 / 25 / 50, default 10), newest date first, ties by newest created. |
 | FR-TRS-4 | Add entry (Admin + Superadmin): type (`EXPENSE` default / `INCOME`), amount (whole IDR, 1 – 1,000,000,000), purpose (1–200), date (`yyyy-mm-dd`, defaults to today). Buttons: **＋ Add spent**, **＋ Add income**. |
 | FR-TRS-5 | **Superadmin only:** edit any field; **soft-delete** (`deletedAt`, `deletedById`). Deleted entries are excluded from every total and list. Edits record `updatedById`. |
@@ -648,7 +648,7 @@ Top to bottom:
 
 ### 11.5 `/treasury`
 
-`TreasuryHero` (eyebrow "Club treasury", all-time cash left, **＋ Add income**, **＋ Add spent**) → `TreasuryKpiCards` (all-time cash left with In/Out ratio bar; period income; period spent; period net) → `MonthlyCashflowCard` (6-month chart, click a month to filter) → `TransactionsCard` (filter toolbar, `TransactionsTable` with date, purpose, type, amount, added by, and superadmin Edit/Delete; pagination 10 / 25 / 50). Soft delete asks for confirmation.
+`TreasuryHero` (eyebrow "Club treasury", all-time cash left, **＋ Add income**, **＋ Add spent**) → `TreasuryKpiCards` (all-time cash left with In/Out ratio bar; period income; period spent; period net) → `MonthlyCashflowCard` (`TreasurySplineChart` interactive spline chart grouped by month `6m`/`12m`/`ytd` or week `8w`/`12w`/`16w`, compact IDR Y-axis, hover crosshair tooltip, line/cards view switcher, and click-to-filter) → `TransactionsCard` (filter toolbar, `TransactionsTable` with date, purpose, type, amount, added by, and superadmin Edit/Delete; pagination 10 / 25 / 50). Soft delete asks for confirmation.
 
 ### 11.6 `/admins`
 

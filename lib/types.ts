@@ -127,6 +127,15 @@ export interface TreasuryMonthlyBucket {
   expense: number;
 }
 
+export interface TreasuryWeeklyBucket {
+  /** Monday start date (yyyy-mm-dd) */
+  weekStart: string;
+  /** Sunday end date (yyyy-mm-dd) */
+  weekEnd: string;
+  income: number;
+  expense: number;
+}
+
 export interface TreasuryFilterParams {
   from?: string;
   to?: string;
@@ -153,8 +162,10 @@ export interface TreasurySummary {
   periodIncomeCount: number;
   /** Filtered expense transaction count. */
   periodExpenseCount: number;
-  /** Monthly breakdown for the dashboard chart (oldest to newest, up to 6 months). */
+  /** Monthly breakdown for the dashboard chart (oldest to newest, up to 12 months). */
   monthly: TreasuryMonthlyBucket[];
+  /** Weekly breakdown for the dashboard chart (oldest to newest, up to 16 weeks). */
+  weekly: TreasuryWeeklyBucket[];
   /** Paginated entries matching the current filter. */
   entries: TreasuryEntry[];
   /** Pagination metadata. */

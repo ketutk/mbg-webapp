@@ -46,42 +46,41 @@ export function TreasurySkeleton() {
         <div className={cardHead}>
           <div>
             <h2 className={cardTitle} id="monthly-cashflow-title">
-              Monthly cashflow (last 6 months)
+              Cashflow trend
             </h2>
             <div className={sub}>
-              Click any month column to filter transactions for that period.
+              Switch between monthly and weekly buckets, hover to inspect
+              totals, or click any point to filter transactions.
             </div>
           </div>
-          <div className="flex items-center gap-3 text-[11px] font-bold text-muted">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-2.5 rounded-sm bg-ok" />
-              Income
+          <SkeletonBar w="w-40" h="h-7" className="rounded-xl" />
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3 border-t border-[#eef4f9] bg-[#fbfdff] px-[22px] py-3.5 max-[860px]:px-[15px]">
+          <div>
+            <span className="mb-1.5 block text-[11px] font-extrabold text-[#5d7f9d]">
+              Group by:
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-2.5 rounded-sm bg-[#d97b78]" />
-              Spent
+            <SkeletonBar w="w-40" h="h-9" className="rounded-xl" />
+          </div>
+          <div>
+            <span className="mb-1.5 block text-[11px] font-extrabold text-[#5d7f9d]">
+              Period window:
             </span>
+            <SkeletonBar w="w-64 max-w-full" h="h-9" className="rounded-xl" />
           </div>
         </div>
 
-        <div className="grid grid-cols-6 gap-2.5 border-t border-[#eef4f9] px-[22px] py-4 max-[860px]:grid-cols-3 max-[860px]:px-[15px] max-[480px]:grid-cols-2">
-          {[0, 1, 2, 3, 4, 5].map((m) => (
-            <div
-              key={m}
-              className="flex flex-col justify-between rounded-2xl border border-[#e8f1fa] bg-[#fbfdff] p-3"
-            >
-              <SkeletonBar w="w-12" h="h-3" />
-              <div className="my-3 flex h-16 items-end justify-center gap-2 border-b border-[#e5eff8] px-2 pt-2">
-                <SkeletonBar w="w-full" h="h-10" className="flex-1 rounded-t-md" />
-                <SkeletonBar w="w-full" h="h-7" className="flex-1 rounded-t-md" />
-              </div>
-              <div className="space-y-1.5">
-                <SkeletonBar w="w-full" h="h-2.5" />
-                <SkeletonBar w="w-4/5" h="h-2.5" />
-                <SkeletonBar w="w-full" h="h-2.5" />
-              </div>
-            </div>
-          ))}
+        <div className="border-t border-[#eef4f9] px-[22px] py-4 max-[860px]:px-[15px]">
+          <SkeletonBar
+            w="w-full"
+            h="h-[260px] max-[600px]:h-[220px]"
+            className="rounded-2xl"
+          />
+          <div className="mt-3 flex items-center justify-center gap-5">
+            <SkeletonBar w="w-16" h="h-4" />
+            <SkeletonBar w="w-16" h="h-4" />
+          </div>
         </div>
       </section>
 

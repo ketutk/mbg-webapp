@@ -43,7 +43,9 @@ export function TreasuryContent({
     filterParams,
     hasActiveFilters,
     resetFilters,
+    activeWeekStart,
     handleSelectMonthFromChart,
+    handleSelectWeekFromChart,
   } = useTreasuryFilters();
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -84,8 +86,11 @@ export function TreasuryContent({
 
       <MonthlyCashflowCard
         monthly={treasury.monthly}
+        weekly={treasury.weekly}
         activeMonth={preset === "month" ? selectedMonth : undefined}
+        activeWeekStart={activeWeekStart}
         onSelectMonth={handleSelectMonthFromChart}
+        onSelectWeek={handleSelectWeekFromChart}
       />
 
       <TransactionsCard

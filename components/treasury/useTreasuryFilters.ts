@@ -45,12 +45,32 @@ export function useTreasuryFilters() {
     setPage(1);
   }
 
+  const activeWeekStart =
+    preset === "custom" && customFrom && customTo ? customFrom : undefined;
+
   function handleSelectMonthFromChart(ym: string) {
     if (preset === "month" && selectedMonth === ym) {
       setPreset("all");
     } else {
       setSelectedMonth(ym);
       setPreset("month");
+    }
+    setPage(1);
+  }
+
+  function handleSelectWeekFromChart(weekStart: string, weekEnd: string) {
+    if (
+      preset === "custom" &&
+      customFrom === weekStart &&
+      customTo === weekEnd
+    ) {
+      setPreset("all");
+      setCustomFrom("");
+      setCustomTo("");
+    } else {
+      setCustomFrom(weekStart);
+      setCustomTo(weekEnd);
+      setPreset("custom");
     }
     setPage(1);
   }
@@ -76,7 +96,9 @@ export function useTreasuryFilters() {
     filterParams,
     hasActiveFilters,
     resetFilters,
+    activeWeekStart,
     handleSelectMonthFromChart,
+    handleSelectWeekFromChart,
   };
 }
 

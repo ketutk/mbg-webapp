@@ -32,4 +32,53 @@ export const fmtMonth = (ym: string): string =>
     year: "numeric",
   });
 
+export const fmtShortMonth = (ym: string): string =>
+  new Date(`${ym}-15T12:00:00`).toLocaleDateString("en-GB", {
+    month: "short",
+  });
+
+export const fmtShortDayMonth = (d: string): string =>
+  new Date(`${d}T12:00:00`).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
+
+export function fmtWeekRange(weekStart: string, weekEnd: string): string {
+  const startYear = weekStart.slice(0, 4);
+  const endYear = weekEnd.slice(0, 4);
+  const endLabel = new Date(`${weekEnd}T12:00:00`).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  if (startYear === endYear) {
+    return `${fmtShortDayMonth(weekStart)} – ${endLabel}`;
+  }
+  const startLabel = new Date(`${weekStart}T12:00:00`).toLocaleDateString(
+    "en-GB",
+    {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    },
+  );
+  return `${startLabel} – ${endLabel}`;
+}
+
+export function formatCompactIDR(amount: number): string {
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? "-" : "";
+  if (abs === 0) return "0";
+  if (abs >= 1_000_000_000) {
+    return `${sign}${(abs / 1_000_000_000).toFixed(2)} M`;
+  }
+  if (abs >= 1_000_000) {
+    return `${sign}${(abs / 1_000_000).toFixed(2)} Jt`;
+  }
+  if (abs >= 1_000) {
+    return `${sign}${(abs / 1_000).toFixed(0)} Rb`;
+  }
+  return `${sign}${Math.round(abs)}`;
+}
+
 
