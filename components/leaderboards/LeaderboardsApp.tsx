@@ -1,65 +1,55 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { SkeletonBar, SkeletonRegion } from "@/components/ui/Skeleton";
+import { ExternalMatchesSkeleton } from "@/components/matches/ExternalMatchesSkeleton";
+import { SkeletonBar } from "@/components/ui/Skeleton";
+import { useAuth } from "@/lib/auth";
 import { fmtDate } from "@/lib/format";
-import { initials } from "@/lib/initials";
-import { useSessionSummary, useSessionsList } from "@/lib/store";
+import { useSessionsList } from "@/lib/store";
 import {
-  avatar,
   btn,
   card,
-  cardHead,
-  cardTitle,
   cx,
-  empty,
   eyebrow,
+  fieldInput,
   h1,
+  linkBtn,
   pill,
-  selectInput,
-  skelCircle,
   spinner,
-  sub,
 } from "@/lib/ui";
 
 export default function LeaderboardsApp() {
-  const [selectedId, setSelectedId] = useState<string>("");
-  const {
-    data: sessionsPage,
-    loading: listLoading,
-    fetching: listFetching,
-  } = useSessionsList({ status: "OPEN", page: 1, pageSize: 12 });
+  const { user, loading: authLoading } = useAuth();
+  const [searchText, setSearchText] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 9;
 
-  const openSessions = sessionsPage?.sessions ?? [];
-  const activeSession =
-    openSessions.find((s) => s.id === selectedId) ?? openSessions[0] ?? null;
-  const activeId = activeSession?.id ?? null;
+  const filterParams = useMemo(
+    () => ({
+      status: user ? ("ALL" as const) : ("OPEN" as const),
+      q: searchText.trim() || undefined,
+      page,
+      pageSize,
+    }),
+    [user, searchText, page],
+  );
 
-  const {
-    data: summary,
-    loading: summaryLoading,
-    fetching: summaryFetching,
-  } = useSessionSummary(activeId);
-
-  const rankedPlayers = summary
-    ? [...summary.players].sort(
-        (a, b) => b.count - a.count || a.name.localeCompare(b.name),
-      )
-    : [];
+  const { data, loading, fetching } = useSessionsList(filterParams);
 
   return (
     <>
-      <section className="mt-8 mb-5 flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
+      <section className="mt-8 mb-6 flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
         <div>
           <div className={eyebrow}>Standings</div>
-          <h1 className={h1}>Leaderboards</h1>
+          <h1 className={h1}>Session leaderboards</h1>
           <div className="mt-1 text-xs text-muted">
-            Player game counts ranked for each active session.
+            Select a session below to view player rankings counted by total
+            winning matches.
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {(listFetching || summaryFetching) && (
+          {fetching && data && (
             <span
               className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#5089b7]"
               aria-live="polite"
@@ -68,152 +58,189 @@ export default function LeaderboardsApp() {
               Syncing…
             </span>
           )}
-          <Link href="/sessions" className={btn("light")}>
+          {data ? (
+            <span className={pill("ok")}>
+              {data.totalSessions} session{data.totalSessions === 1 ? "" : "s"}
+            </span>
+          ) : (
+            <SkeletonBar w="w-28" h="h-6" className="rounded-full" />
+          )}
+          <Link href="/sessions" className={btn("light", "sm")}>
             All sessions →
           </Link>
         </div>
       </section>
 
-      {listLoading && !sessionsPage ? (
-        <SkeletonRegion label="Loading leaderboards">
-          <section className={card} aria-labelledby="leaderboards-title">
-            <div className={cardHead}>
-              <div>
-                <h2 className={cardTitle} id="leaderboards-title">
-                  Session leaderboard
-                </h2>
-                <SkeletonBar w="w-56" h="h-3" className="mt-2" />
+      {(authLoading || (loading && !data)) ? (
+        <ExternalMatchesSkeleton />
+      ) : data ? (
+        <>
+          {(data.totalSessions > 3 || searchText.trim().length > 0) && (
+            <div className="mb-5 flex flex-wrap items-center gap-2.5">
+              <div className="relative max-w-[360px] flex-1">
+                <input
+                  type="search"
+                  placeholder="Find session by name…"
+                  value={searchText}
+                  onChange={(e) => {
+                    setSearchText(e.target.value);
+                    setPage(1);
+                  }}
+                  className={cx(fieldInput, "bg-white py-2 text-xs")}
+                />
               </div>
-              <SkeletonBar w="w-44" h="h-9" className="rounded-xl" />
-            </div>
-            <ul className="list-none border-t border-[#eef4f9]">
-              {[0, 1, 2, 3, 4].map((row) => (
-                <li
-                  key={row}
-                  className="flex items-center gap-3 border-b border-[#f0f5f9] px-[22px] py-3 last:border-b-0 max-[860px]:px-[15px]"
+              {searchText.trim().length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchText("");
+                    setPage(1);
+                  }}
+                  className={cx(linkBtn, "text-[#b5524f] hover:underline")}
                 >
-                  <SkeletonBar w="w-7" h="h-5" className="rounded-full" />
-                  <div aria-hidden="true" className={skelCircle("size-8")} />
-                  <SkeletonBar w="w-36" h="h-3.5" className="flex-1" />
-                  <SkeletonBar w="w-9" h="h-7" className="rounded-[9px]" />
-                </li>
-              ))}
-            </ul>
-          </section>
-        </SkeletonRegion>
-      ) : openSessions.length === 0 ? (
-        <section
-          className={cx(card, "mx-auto mt-6 max-w-[520px] px-6 py-10 text-center")}
-        >
-          <div className={eyebrow}>No active sessions</div>
-          <h2 className="mt-2 font-display text-xl font-extrabold text-[#183e6b]">
-            No open sessions on the board
-          </h2>
-          <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
-            Player leaderboards appear while sessions are open on match day.
-          </p>
-          <Link href="/sessions" className={btn("primary")}>
-            Browse sessions →
-          </Link>
-        </section>
-      ) : (
-        <section className={card} aria-labelledby="leaderboards-title">
-          <div className={cx(cardHead, "flex-wrap items-center")}>
-            <div>
-              <h2 className={cardTitle} id="leaderboards-title">
-                {activeSession?.name ?? "Session leaderboard"}
-              </h2>
-              <div className={sub}>
-                {activeSession
-                  ? `${fmtDate(activeSession.date)} · ${activeSession.playerCount} players · ${activeSession.gameCount} matches`
-                  : "Games played per player"}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {openSessions.length > 1 && (
-                <label className="flex items-center gap-2 text-xs font-bold text-[#5d7f9d]">
-                  <span className="sr-only">Choose session</span>
-                  <select
-                    value={activeId ?? ""}
-                    onChange={(e) => setSelectedId(e.target.value)}
-                    className={cx(selectInput, "max-w-[240px]")}
-                  >
-                    {openSessions.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({fmtDate(s.date)})
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  Clear search
+                </button>
               )}
-              {activeSession && (
-                <Link
-                  href={`/sessions/${activeSession.id}`}
-                  className={btn("primary", "sm")}
+            </div>
+          )}
+
+          {data.sessions.length === 0 ? (
+            <section
+              className={cx(
+                card,
+                "mx-auto mt-6 max-w-[520px] px-6 py-10 text-center",
+              )}
+            >
+              <div className={eyebrow}>No sessions</div>
+              <h2 className="mt-2 font-display text-xl font-extrabold text-[#183e6b]">
+                {searchText.trim()
+                  ? "No matching sessions"
+                  : "No sessions available right now"}
+              </h2>
+              <p className="mt-2 mb-5 text-xs leading-relaxed text-muted">
+                {searchText.trim()
+                  ? "Try clearing your search to view all available sessions."
+                  : "Open sessions appear here when organisers schedule match day."}
+              </p>
+              {searchText.trim() ? (
+                <button
+                  type="button"
+                  className={btn("light")}
+                  onClick={() => {
+                    setSearchText("");
+                    setPage(1);
+                  }}
                 >
-                  Open session →
+                  Show all sessions
+                </button>
+              ) : (
+                <Link href="/sessions" className={btn("primary")}>
+                  Go to sessions →
                 </Link>
               )}
-            </div>
-          </div>
-
-          {summaryLoading && !summary ? (
-            <ul className="list-none border-t border-[#eef4f9]">
-              {[0, 1, 2, 3, 4].map((row) => (
-                <li
-                  key={row}
-                  className="flex items-center gap-3 border-b border-[#f0f5f9] px-[22px] py-3 last:border-b-0 max-[860px]:px-[15px]"
-                >
-                  <SkeletonBar w="w-7" h="h-5" className="rounded-full" />
-                  <div aria-hidden="true" className={skelCircle("size-8")} />
-                  <SkeletonBar w="w-36" h="h-3.5" className="flex-1" />
-                  <SkeletonBar w="w-9" h="h-7" className="rounded-[9px]" />
-                </li>
-              ))}
-            </ul>
-          ) : rankedPlayers.length === 0 ? (
-            <div className={empty}>No players in this session yet.</div>
+            </section>
           ) : (
-            <ul className="list-none border-t border-[#eef4f9]">
-              {rankedPlayers.map((player, index) => {
-                const rank = index + 1;
-                return (
-                  <li
-                    key={player.id}
-                    className="flex items-center gap-3 border-b border-[#f0f5f9] px-[22px] py-3 last:border-b-0 max-[860px]:px-[15px]"
-                  >
-                    <span
-                      className={cx(
-                        "grid h-6 min-w-7 place-items-center rounded-full px-1.5 font-display text-[11px] font-extrabold",
-                        rank === 1
-                          ? "bg-ok-bg text-ok"
-                          : rank <= 3
-                            ? "bg-[#eaf5ff] text-[#337fc4]"
-                            : "bg-[#f4f7fa] text-muted",
-                      )}
-                    >
-                      #{rank}
-                    </span>
-                    <span className={avatar}>{initials(player.name)}</span>
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-extrabold text-[#254f77]">
-                      {player.name}
-                    </span>
-                    {player.queued > 0 && (
-                      <span className={pill("warn")}>
-                        +{player.queued} queued
-                      </span>
+            <>
+              <div className="grid grid-cols-3 gap-4 max-[960px]:grid-cols-2 max-[600px]:grid-cols-1">
+                {data.sessions.map((item) => (
+                  <Link
+                    key={item.id}
+                    href={`/leaderboards/${item.id}`}
+                    className={cx(
+                      card,
+                      "group flex flex-col justify-between p-5 no-underline transition-all duration-150 hover:-translate-y-0.5 hover:border-[#b9dbf7] hover:shadow-[0_14px_34px_#3a7fb81f]",
                     )}
-                    <span className="grid h-7 min-w-9 place-items-center rounded-[9px] bg-[#eaf5ff] px-2.5 font-display text-[13px] font-extrabold text-[#337fc4]">
-                      {player.count}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={eyebrow}>{fmtDate(item.date)}</span>
+                        <span
+                          className={pill(
+                            item.status === "OPEN" ? "ok" : "default",
+                          )}
+                        >
+                          {item.status === "OPEN" ? "Open" : "Closed"}
+                        </span>
+                      </div>
+                      <h2 className="mt-2 font-display text-lg font-extrabold tracking-[-0.4px] text-[#183e6b] group-hover:text-[#337fc4]">
+                        {item.name}
+                      </h2>
+
+                      <div className="mt-4 grid grid-cols-3 gap-2 rounded-2xl border border-[#e6f1fb] bg-[#f7fbff] p-3 text-center">
+                        <div>
+                          <div className="font-display text-base font-extrabold text-[#204a74]">
+                            {item.courtCount}
+                          </div>
+                          <div className="text-[10px] font-bold text-muted">
+                            Court{item.courtCount === 1 ? "" : "s"}
+                          </div>
+                        </div>
+                        <div className="border-x border-[#e3eff9]">
+                          <div className="font-display text-base font-extrabold text-[#204a74]">
+                            {item.playerCount}
+                          </div>
+                          <div className="text-[10px] font-bold text-muted">
+                            Player{item.playerCount === 1 ? "" : "s"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="font-display text-base font-extrabold text-[#204a74]">
+                            {item.gameCount}
+                          </div>
+                          <div className="text-[10px] font-bold text-muted">
+                            Match{item.gameCount === 1 ? "" : "es"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between border-t border-[#eef4f9] pt-3.5">
+                      <span className="text-[11px] font-bold text-muted">
+                        Win standings
+                      </span>
+                      <span className="text-xs font-extrabold text-[#3c78aa] transition-transform group-hover:translate-x-0.5">
+                        View leaderboard →
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+
+              {data.totalPages > 1 && (
+                <div className="mt-6 flex items-center justify-center gap-2.5">
+                  <button
+                    type="button"
+                    className={cx(
+                      btn("light", "sm"),
+                      "disabled:cursor-not-allowed disabled:opacity-45",
+                    )}
+                    disabled={data.page <= 1 || fetching}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    ← Prev
+                  </button>
+                  <span className="px-2 text-xs font-extrabold text-[#204a74]">
+                    Page {data.page} of {data.totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className={cx(
+                      btn("light", "sm"),
+                      "disabled:cursor-not-allowed disabled:opacity-45",
+                    )}
+                    disabled={data.page >= data.totalPages || fetching}
+                    onClick={() =>
+                      setPage((p) => Math.min(data.totalPages, p + 1))
+                    }
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
+            </>
           )}
-        </section>
-      )}
+        </>
+      ) : null}
     </>
   );
 }

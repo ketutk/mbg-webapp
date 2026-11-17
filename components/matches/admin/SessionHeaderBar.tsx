@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { fmtDate } from "@/lib/format";
 import type { Session } from "@/lib/types";
 import { btn, cx, eyebrow, h1, pill, spinner } from "@/lib/ui";
@@ -44,6 +45,9 @@ export function SessionHeaderBar({
         <button type="button" className={btn("light")} onClick={onBackToList}>
           ← All sessions
         </button>
+        <Link href={`/leaderboards/${session.id}`} className={btn("light")}>
+          Leaderboard
+        </Link>
         <button
           type="button"
           className={btn("light")}

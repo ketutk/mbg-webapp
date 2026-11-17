@@ -41,6 +41,10 @@ export interface Game {
   courtNumber?: number;
   /** Set only while status is QUEUED. */
   queueOrder?: number;
+  /** Recorded final score for Team A when finished. */
+  scoreA?: number;
+  /** Recorded final score for Team B when finished. */
+  scoreB?: number;
   /** Locked columns reject manual tick edits until unlocked. */
   locked: boolean;
 }
@@ -105,7 +109,14 @@ export interface SessionSummary {
   courtCount: number;
   status: SessionStatus;
   /** `count` includes queued games; `queued` is how many of those are still QUEUED. */
-  players: { id: string; name: string; count: number; queued: number }[];
+  players: {
+    id: string;
+    name: string;
+    count: number;
+    queued: number;
+    wins: number;
+    losses: number;
+  }[];
   courts: PublicGame[];
   queue: PublicGame[];
 }

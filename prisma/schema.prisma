@@ -94,6 +94,8 @@ model Game {
   status      GameStatus
   courtNumber Int?
   queueOrder  Int?
+  scoreA      Int?
+  scoreB      Int?
   locked      Boolean      @default(false)
   createdAt   DateTime     @default(now())
   startedAt   DateTime?

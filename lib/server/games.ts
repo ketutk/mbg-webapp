@@ -5,6 +5,7 @@ import { toGameDTO, toSessionDTO } from "./dto";
 import { HttpError } from "./http";
 import type {
   AssignInput,
+  FinishMatchInput,
   GameUpdateInput,
   LockInput,
   QueueOrderInput,
@@ -291,7 +292,10 @@ export async function startQueuedGame(
   });
 }
 
-export async function finishOnCourtGame(gameId: string): Promise<Game> {
+export async function finishOnCourtGame(
+  gameId: string,
+  input: FinishMatchInput,
+): Promise<Game> {
   return prisma.$transaction(async (tx) => {
     const game = await tx.game.findUnique({ where: { id: gameId } });
     if (!game) {
@@ -306,6 +310,8 @@ export async function finishOnCourtGame(gameId: string): Promise<Game> {
       data: {
         status: "DONE",
         courtNumber: null,
+        scoreA: input.scoreA,
+        scoreB: input.scoreB,
         finishedAt: new Date(),
       },
       include: { players: true },
@@ -424,7 +430,7 @@ export async function setPlayerTick(
       });
     }
 
-    // Any manual tick change clears team assignments on the match
+    // Any manual tick change clears team assignments and recorded scores on the match
     await tx.gamePlayer.updateMany({
       where: { gameId },
       data: { team: null },
@@ -435,7 +441,7 @@ export async function setPlayerTick(
 
     const updated = await tx.game.update({
       where: { id: gameId },
-      data: { locked: shouldLock },
+      data: { locked: shouldLock, scoreA: null, scoreB: null },
       include: { players: true },
     });
 

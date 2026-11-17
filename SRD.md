@@ -244,7 +244,8 @@ mbg-webapp-main/
 │  │  ├─ page.tsx                    "/"              → <HomeApp/>          (indexed)
 │  │  ├─ sessions/page.tsx           "/sessions"      → <MatchApp/>         (indexed)
 │  │  ├─ sessions/[id]/page.tsx      "/sessions/[id]" → <SessionDetailApp/> (Suspense wrapped)
-│  │  ├─ leaderboards/page.tsx       "/leaderboards"  → <LeaderboardsApp/>
+│  │  ├─ leaderboards/page.tsx       "/leaderboards"      → <LeaderboardsApp/>
+│  │  ├─ leaderboards/[id]/page.tsx  "/leaderboards/[id]" → <SessionLeaderboardApp/> (Suspense wrapped)
 │  │  ├─ treasury/page.tsx           "/treasury"      → <TreasuryApp/>      (noindex)
 │  │  └─ admins/page.tsx             "/admins"        → <AdminsApp/>        (noindex)
 │  └─ api/                           Route Handlers (each file = `route({ roles, body }, handler)`)
@@ -260,7 +261,7 @@ mbg-webapp-main/
 │  ├─ layout/                        AppHeader · MobileBottomNav · SyncStatus · GlobalDialogs · RouteOverlayReset · nav-items.ts
 │  ├─ ui/                            Dialog (Dialog + ConfirmDialog) · Modal (alias re-export) · Skeleton · Toast · TablePagination
 │  ├─ home/                          HomeApp (club hub linking to /sessions and /leaderboards)
-│  ├─ leaderboards/                  LeaderboardsApp (per-session games played rankings)
+│  ├─ leaderboards/                  LeaderboardsApp (session picker) · SessionLeaderboardApp · SessionLeaderboardSkeleton
 │  ├─ auth/                          LoginDialog · PasswordDialog
 │  ├─ matches/                       Sessions feature
 │  │  ├─ MatchApp.tsx                Sessions directory root: ExternalMatchesView vs SessionsDirectory
@@ -268,7 +269,7 @@ mbg-webapp-main/
 │  │  ├─ ExternalMatchesView.tsx     Visitor view: open-session card grid → VisitorView
 │  │  ├─ VisitorView · VisitorQueueSection · VisitorPlayersSection
 │  │  ├─ CourtBoard · CourtCard (read-only variant for visitors) · QueuePanel · NextMatch · PlayerGrid
-│  │  ├─ AssignDialog · HistoryDialog · RosterDialog · SessionDialog · SessionSettingsDialog
+│  │  ├─ AssignDialog · FinishMatchDialog · HistoryDialog · RosterDialog · SessionDialog · SessionSettingsDialog
 │  │  └─ admin/                      Organiser-only pieces
 │  │     ├─ AdminSessionContainer · SessionView · SessionHeaderBar
 │  │     ├─ SessionsDirectory · SessionsHero · SessionsTable · SessionsFilterToolbar
@@ -401,6 +402,8 @@ model Game {
   status      GameStatus
   courtNumber Int?                                    // only while ON_COURT
   queueOrder  Int?                                    // only while QUEUED
+  scoreA      Int?                                    // final score for Team A when DONE
+  scoreB      Int?                                    // final score for Team B when DONE
   locked      Boolean      @default(false)
   createdAt   DateTime     @default(now())
   startedAt   DateTime?
@@ -437,7 +440,7 @@ model TreasuryEntry {
 }
 ```
 
-Migrations: `20261108151400_init` (full schema) and `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`).
+Migrations: `20261108151400_init` (full schema), `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`), and `20261117081500_add_game_scores` (adds `scoreA`, `scoreB` on `Game`).
 
 ### Derived rules the schema relies on
 
@@ -626,7 +629,8 @@ Zustand is for UI state only. Server data never goes into Zustand.
 | `/` | `HomeApp` | Everyone; landing hub navigating to `/sessions` and `/leaderboards` | indexed |
 | `/sessions` | `MatchApp` | Everyone; open-session cards (visitors) or sessions table (organisers) | indexed |
 | `/sessions/[id]` | `SessionDetailApp` | Everyone; `VisitorView` (visitors) or `AdminSessionContainer` (organisers) | indexed |
-| `/leaderboards` | `LeaderboardsApp` | Everyone; ranked games played per open session | indexed |
+| `/leaderboards` | `LeaderboardsApp` | Everyone; session picker navigating to `/leaderboards/[id]` | indexed |
+| `/leaderboards/[id]` | `SessionLeaderboardApp` | Everyone; per-session rankings counted by winning matches (tie-breaker: fewest losses, name) | indexed |
 | `/treasury` | `TreasuryApp` | Organisers (visitors see "Please log in to view treasury" + Admin login button) | `noindex` |
 | `/admins` | `AdminsApp` | Superadmin (others see "Not allowed" + Back to matches) | `noindex` |
 
@@ -639,13 +643,13 @@ Zustand is for UI state only. Server data never goes into Zustand.
 ### 11.3 `/sessions` and `/sessions/[id]` for visitors
 
 1. `/sessions`: Hero ("Live match day" / "Play fair. Play more.") with open-session count pill, optional name search (when > 3 open sessions or active search), and open session card grid (pager when > 9).
-2. Clicking a card navigates to `/sessions/[id]` rendering `VisitorView`: header (date, Open/Closed pill, name, "← All sessions"), **Courts**, **Queue**, **Games played** (§3.8).
+2. Clicking a card navigates to `/sessions/[id]` rendering `VisitorView`: header (date, Open/Closed pill, name, "Leaderboard", "← All sessions"), **Courts**, **Queue**, **Games played** (§3.8).
 
 ### 11.4 `/sessions` and `/sessions/[id]` for organisers
 
 1. **`/sessions` (`SessionsDirectory`)**: Hero ("Organiser dashboard" / "Match sessions"), card with open/closed pills, filter toolbar (period, status, name search), table (view detail link to `/sessions/[id]`, close/reopen, delete for superadmin), pagination (5 / 10 / 25 / 50 rows).
 2. **`/sessions/[id]` (`AdminSessionContainer` → `SessionView`)**:
-   1. `SessionHeaderBar`: date + status pill, session name (h1), *← All sessions*, *Close/Reopen session*, *History · n*; **superadmin only:** *Edit players*, *Session settings*, *Delete*.
+   1. `SessionHeaderBar`: date + status pill, session name (h1), *← All sessions*, *Leaderboard*, *Close/Reopen session*, *History · n*; **superadmin only:** *Edit players*, *Session settings*, *Delete*.
    2. **Courts** (`CourtBoard`): `CourtCard` grid (2 cols, 1 on mobile). Occupied: Court N, Team A vs Team B, "Playing since hh:mm", *Edit players*, *✓ Finish match*. Empty (dashed): *＋ Assign players* and *▶ Play next in queue* when the queue has items.
    3. **Queue** (`QueuePanel`): ordered list with "Queued" pill, ▲ ▼, Edit, ✕ (confirm), *＋ Add to queue*.
    4. Two-column area (1.7fr / 1fr; stacked on mobile): **Games played** (`PlayerGrid`, left) and **Next match** (`NextMatch`, right, sticky on desktop; first on mobile) with *Shuffle*, *Assign to court*, *Add to queue*, and the waiting list.
@@ -670,7 +674,8 @@ All use `components/ui/Dialog.tsx` (`Dialog`, `ConfirmDialog`; `Modal` is an unu
 | `SessionSettingsDialog` (name, date, courts, open/closed) | `SessionHeaderBar` | superadmin |
 | `RosterDialog` ("Edit players") | `SessionHeaderBar` | superadmin |
 | `AssignDialog` (court picker or queue, Team A/B selects, "use recommendation", busy hints; also edits a match) | CourtBoard, QueuePanel, NextMatch | organisers |
-| `HistoryDialog` ("Match history", newest first; status pill, court, lock info, remove) | `SessionHeaderBar` | organisers |
+| `FinishMatchDialog` (records Team A / Team B final scores on finish, no ties) | CourtCard (`✓ Finish match`) via `SessionView` | organisers |
+| `HistoryDialog` ("Match history", newest first; status pill, court, score pill, lock info, remove) | `SessionHeaderBar` | organisers |
 | `TreasuryEntryDialog` (type, amount, purpose, date; add or edit) | Treasury hero / table | add: organisers; edit: superadmin |
 | `AdminDialog` (create admin / reset password) | `/admins` | superadmin |
 | `ConfirmDialog` (remove queued match, delete session, remove game, clear all, delete treasury entry, delete admin) | various | as the action |
@@ -693,7 +698,7 @@ All use `components/ui/Dialog.tsx` (`Dialog`, `ConfirmDialog`; `Modal` is an unu
 | Roster edit removes a player | Ticks vanish; every game they were in is unlocked and its `team` cleared |
 | Court count lowered below an occupied court | 409 `COURT_OCCUPIED` |
 | Delete a queued match | Queue order compacts to 1…n |
-| Finish match | `DONE`, `finishedAt`, `courtNumber = null`; ticks and lock unchanged |
+| Finish match | `DONE`, `finishedAt`, `courtNumber = null`, `scoreA`/`scoreB` saved; ticks and lock unchanged |
 | Visitor opens a closed session by id | 403 `SESSION_CLOSED`; UI shows "Session unavailable" |
 | Soft-deleted admin with a live cookie | Next request fails (`deletedAt` checked each request) → treated as logged out |
 | Delete yourself or a superadmin | 403 `FORBIDDEN` |

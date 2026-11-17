@@ -94,6 +94,14 @@ export function HistoryDialog({
                     {g.status === "DONE" && (
                       <span className={pill("default")}>Finished</span>
                     )}
+                    {g.scoreA != null && g.scoreB != null && (
+                      <span className={pill("ok")}>
+                        {g.scoreA} – {g.scoreB}
+                        {g.teams && g.scoreA !== g.scoreB
+                          ? ` · ${g.scoreA > g.scoreB ? "Team A" : "Team B"} won`
+                          : ""}
+                      </span>
+                    )}
                     {g.locked && (
                       <span
                         className="text-[11px] text-muted"

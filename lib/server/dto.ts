@@ -63,6 +63,8 @@ export function toGameDTO(game: GameWithPlayers): Game {
     ...(game.status === "QUEUED" && game.queueOrder != null
       ? { queueOrder: game.queueOrder }
       : {}),
+    ...(game.scoreA != null ? { scoreA: game.scoreA } : {}),
+    ...(game.scoreB != null ? { scoreB: game.scoreB } : {}),
     locked: game.locked,
   };
 }
@@ -119,12 +121,31 @@ export function toSessionDTO(session: SessionWithRelations): Session {
 export function toSessionSummaryDTO(session: SessionWithRelations): SessionSummary {
   const countMap = new Map<string, number>();
   const queuedMap = new Map<string, number>();
+  const winsMap = new Map<string, number>();
+  const lossesMap = new Map<string, number>();
 
   for (const g of session.games) {
+    const winnerTeam =
+      g.status === "DONE" &&
+      g.scoreA != null &&
+      g.scoreB != null &&
+      g.scoreA !== g.scoreB
+        ? g.scoreA > g.scoreB
+          ? "A"
+          : "B"
+        : null;
+
     for (const gp of g.players) {
       countMap.set(gp.playerId, (countMap.get(gp.playerId) ?? 0) + 1);
       if (g.status === "QUEUED") {
         queuedMap.set(gp.playerId, (queuedMap.get(gp.playerId) ?? 0) + 1);
+      }
+      if (winnerTeam && (gp.team === "A" || gp.team === "B")) {
+        if (gp.team === winnerTeam) {
+          winsMap.set(gp.playerId, (winsMap.get(gp.playerId) ?? 0) + 1);
+        } else {
+          lossesMap.set(gp.playerId, (lossesMap.get(gp.playerId) ?? 0) + 1);
+        }
       }
     }
   }
@@ -136,6 +157,8 @@ export function toSessionSummaryDTO(session: SessionWithRelations): SessionSumma
       name: p.name,
       count: countMap.get(p.id) ?? 0,
       queued: queuedMap.get(p.id) ?? 0,
+      wins: winsMap.get(p.id) ?? 0,
+      losses: lossesMap.get(p.id) ?? 0,
     }));
 
   const courts = session.games

@@ -1,6 +1,6 @@
 import { api } from "../api";
 import { queryClient, queryKeys } from "../query";
-import type { AssignInput } from "../schemas";
+import type { AssignInput, FinishMatchInput } from "../schemas";
 import type { Game, Session, Team } from "../types";
 
 export async function assignMatch(
@@ -105,6 +105,7 @@ export async function startQueuedMatch(
 export async function finishMatch(
   sessionId: string,
   gameId: string,
+  input: FinishMatchInput,
 ): Promise<Game> {
   const key = queryKeys.sessionDetail(sessionId);
   await queryClient.cancelQueries({ queryKey: key });
@@ -117,7 +118,13 @@ export async function finishMatch(
             ...s,
             games: s.games.map((g) =>
               g.id === gameId
-                ? { ...g, status: "DONE", courtNumber: undefined }
+                ? {
+                    ...g,
+                    status: "DONE",
+                    courtNumber: undefined,
+                    scoreA: input.scoreA,
+                    scoreB: input.scoreB,
+                  }
                 : g,
             ),
           }
@@ -128,6 +135,7 @@ export async function finishMatch(
   try {
     const { game } = await api<{ game: Game }>(`/games/${gameId}/finish`, {
       method: "POST",
+      body: input,
     });
     queryClient.setQueryData<Session>(key, (s) =>
       s ? { ...s, games: s.games.map((g) => (g.id === gameId ? game : g)) } : s,

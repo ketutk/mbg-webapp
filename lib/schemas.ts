@@ -110,6 +110,24 @@ export const queueOrderInput = z.object({
   gameIds: z.array(z.string().min(1)),
 });
 
+export const finishMatchInput = z
+  .object({
+    scoreA: z
+      .number()
+      .int("Score must be a whole number")
+      .min(0, "Score cannot be negative")
+      .max(99, "Score max is 99"),
+    scoreB: z
+      .number()
+      .int("Score must be a whole number")
+      .min(0, "Score cannot be negative")
+      .max(99, "Score max is 99"),
+  })
+  .refine((v) => v.scoreA !== v.scoreB, {
+    message: "Scores cannot be tied — enter a winning score",
+    path: ["scoreB"],
+  });
+
 export const treasuryInput = z.object({
   type: z.enum(["INCOME", "EXPENSE"]).default("EXPENSE"),
   amount: z
@@ -150,6 +168,7 @@ export type TickInput = z.infer<typeof tickInput>;
 export type LockInput = z.infer<typeof lockInput>;
 export type StartInput = z.infer<typeof startInput>;
 export type QueueOrderInput = z.infer<typeof queueOrderInput>;
+export type FinishMatchInput = z.infer<typeof finishMatchInput>;
 export type TreasuryInput = z.infer<typeof treasuryInput>;
 export type TreasuryPatchInput = z.infer<typeof treasuryPatchInput>;
 

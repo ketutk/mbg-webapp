@@ -8,7 +8,6 @@ import { fmtDate } from "@/lib/format";
 import { prefillFromRec, queueOf, recommend } from "@/lib/match";
 import {
   deleteSession,
-  finishMatch,
   removeGame,
   reorderQueue,
   startQueuedMatch,
@@ -31,6 +30,9 @@ import { SessionHeaderBar } from "./SessionHeaderBar";
 
 const AssignDialog = dynamic(() =>
   import("../AssignDialog").then((m) => m.AssignDialog),
+);
+const FinishMatchDialog = dynamic(() =>
+  import("../FinishMatchDialog").then((m) => m.FinishMatchDialog),
 );
 const HistoryDialog = dynamic(() =>
   import("../HistoryDialog").then((m) => m.HistoryDialog),
@@ -65,7 +67,7 @@ export function SessionView({
   const [deletingSession, setDeletingSession] = useState(false);
   const [togglingStatus, setTogglingStatus] = useState(false);
   const [promotingCourt, setPromotingCourt] = useState<number | null>(null);
-  const [finishingGameId, setFinishingGameId] = useState<string | null>(null);
+  const [finishingGame, setFinishingGame] = useState<Game | null>(null);
   const [movingGameId, setMovingGameId] = useState<string | null>(null);
   const [confirmRemoveQueued, setConfirmRemoveQueued] = useState<Game | null>(
     null,
@@ -80,6 +82,7 @@ export function SessionView({
   useEffect(() => {
     const warm = () => {
       void import("../AssignDialog");
+      void import("../FinishMatchDialog");
       void import("../HistoryDialog");
       if (isSuperadmin) {
         void import("../RosterDialog");
@@ -111,18 +114,6 @@ export function SessionView({
       );
     } finally {
       setTogglingStatus(false);
-    }
-  }
-
-  async function handleFinishGame(game: Game) {
-    setFinishingGameId(game.id);
-    try {
-      await finishMatch(session.id, game.id);
-      showToast(`Court ${game.courtNumber ?? ""} finished`);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Could not finish match");
-    } finally {
-      setFinishingGameId(null);
     }
   }
 
@@ -204,7 +195,7 @@ export function SessionView({
       <CourtBoard
         session={session}
         promotingCourt={promotingCourt}
-        finishingGameId={finishingGameId}
+        finishingGameId={null}
         onAssignCourt={(courtNumber) =>
           setAssignConfig({
             mode: "court",
@@ -219,7 +210,7 @@ export function SessionView({
             editingGame: game,
           })
         }
-        onFinishGame={(g) => void handleFinishGame(g)}
+        onFinishGame={(g) => setFinishingGame(g)}
       />
 
       <QueuePanel
@@ -281,6 +272,14 @@ export function SessionView({
       )}
       {showHistory && (
         <HistoryDialog session={session} onClose={() => setShowHistory(false)} />
+      )}
+      {finishingGame && (
+        <FinishMatchDialog
+          session={session}
+          game={finishingGame}
+          onClose={() => setFinishingGame(null)}
+          onSaved={showToast}
+        />
       )}
       {assignConfig && (
         <AssignDialog

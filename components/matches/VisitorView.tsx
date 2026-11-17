@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { fmtDate } from "@/lib/format";
 import { selectSession, useSessionSummary } from "@/lib/store";
 import type { PublicGame } from "@/lib/types";
@@ -91,6 +92,9 @@ export function VisitorView({
           <h1 className={h1}>{summary.name}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link href={`/leaderboards/${summary.id}`} className={btn("primary")}>
+            Leaderboard
+          </Link>
           <button
             type="button"
             className={btn("light")}

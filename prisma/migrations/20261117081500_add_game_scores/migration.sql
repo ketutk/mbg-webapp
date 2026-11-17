@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Game" ADD COLUMN "scoreA" INTEGER,
+ADD COLUMN "scoreB" INTEGER;
