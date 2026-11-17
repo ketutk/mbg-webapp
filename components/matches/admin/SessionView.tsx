@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { fmtDate } from "@/lib/format";
 import { prefillFromRec, queueOf, recommend } from "@/lib/match";
@@ -44,10 +45,14 @@ const SessionSettingsDialog = dynamic(() =>
 export function SessionView({
   session,
   user,
+  onBackToList,
 }: {
   session: Session;
   user: AuthUser;
+  onBackToList?: () => void;
 }) {
+  const router = useRouter();
+  const handleBack = onBackToList ?? (() => router.push("/sessions"));
   const showToast = useToast();
   const [seed, setSeed] = useState(0);
   const [editingRoster, setEditingRoster] = useState(false);
@@ -173,6 +178,7 @@ export function SessionView({
       await deleteSession(session.id);
       setConfirmDeleteSession(false);
       showToast("Session deleted");
+      handleBack();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Could not delete session");
     } finally {
@@ -187,6 +193,7 @@ export function SessionView({
         isSuperadmin={isSuperadmin}
         togglingStatus={togglingStatus}
         deletingSession={deletingSession}
+        onBackToList={handleBack}
         onShowHistory={() => setShowHistory(true)}
         onEditRoster={() => setEditingRoster(true)}
         onEditSettings={() => setEditingSettings(true)}

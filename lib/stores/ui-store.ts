@@ -6,14 +6,11 @@ let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 interface UiState {
   toast: string;
-  drawerOpen: boolean;
   loginOpen: boolean;
   passwordOpen: boolean;
   newSessionOpen: boolean;
 
   showToast: (msg: string) => void;
-  openDrawer: () => void;
-  closeDrawer: () => void;
   openLogin: () => void;
   closeLogin: () => void;
   openPassword: () => void;
@@ -25,7 +22,6 @@ interface UiState {
 
 export const useUiStore = create<UiState>()((set) => ({
   toast: "",
-  drawerOpen: false,
   loginOpen: false,
   passwordOpen: false,
   newSessionOpen: false,
@@ -36,8 +32,6 @@ export const useUiStore = create<UiState>()((set) => ({
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => set({ toast: "" }), TOAST_MS);
   },
-  openDrawer: () => set({ drawerOpen: true }),
-  closeDrawer: () => set({ drawerOpen: false }),
   openLogin: () => set({ loginOpen: true }),
   closeLogin: () => set({ loginOpen: false }),
   openPassword: () => set({ passwordOpen: true }),
@@ -46,7 +40,6 @@ export const useUiStore = create<UiState>()((set) => ({
   closeNewSession: () => set({ newSessionOpen: false }),
   closeOverlays: () =>
     set({
-      drawerOpen: false,
       loginOpen: false,
       passwordOpen: false,
       newSessionOpen: false,
@@ -55,4 +48,3 @@ export const useUiStore = create<UiState>()((set) => ({
 
 /** Stable reference (actions are created once). Use instead of passing onToast around. */
 export const useToast = () => useUiStore((s) => s.showToast);
-

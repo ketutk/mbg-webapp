@@ -1,5 +1,5 @@
-import MatchApp from "@/components/matches/MatchApp";
+import HomeApp from "@/components/home/HomeApp";
 
 export default function Home() {
-  return <MatchApp />;
+  return <HomeApp />;
 }

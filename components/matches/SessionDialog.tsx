@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createSession, parseNames, todayISO } from "@/lib/store";
 import { sessionInput } from "@/lib/schemas";
 import type { SessionStatus } from "@/lib/types";
@@ -20,6 +21,7 @@ import {
 } from "@/lib/ui";
 
 export function SessionDialog({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
   const [date, setDate] = useState(todayISO);
   const [name, setName] = useState("");
   const [courtCount, setCourtCount] = useState(1);
@@ -46,8 +48,9 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
 
     setBusy(true);
     try {
-      await createSession(parsed.data);
+      const created = await createSession(parsed.data);
       onClose();
+      router.push(`/sessions/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create session");
     } finally {

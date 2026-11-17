@@ -1,7 +1,6 @@
 "use client";
 
 import { fmtDate } from "@/lib/format";
-import { selectSession } from "@/lib/store";
 import type { Session } from "@/lib/types";
 import { btn, cx, eyebrow, h1, pill, spinner } from "@/lib/ui";
 
@@ -10,6 +9,7 @@ export function SessionHeaderBar({
   isSuperadmin,
   togglingStatus,
   deletingSession,
+  onBackToList,
   onShowHistory,
   onEditRoster,
   onEditSettings,
@@ -20,6 +20,7 @@ export function SessionHeaderBar({
   isSuperadmin: boolean;
   togglingStatus: boolean;
   deletingSession: boolean;
+  onBackToList: () => void;
   onShowHistory: () => void;
   onEditRoster: () => void;
   onEditSettings: () => void;
@@ -40,11 +41,7 @@ export function SessionHeaderBar({
         <h1 className={h1}>{session.name}</h1>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className={btn("light")}
-          onClick={() => selectSession(null)}
-        >
+        <button type="button" className={btn("light")} onClick={onBackToList}>
           ← All sessions
         </button>
         <button

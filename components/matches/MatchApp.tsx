@@ -1,34 +1,33 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { selectSession, useCurrentSessionId } from "@/lib/store";
+import { selectSession } from "@/lib/store";
 import { useUiStore } from "@/lib/stores/ui-store";
+import { SessionsDirectory } from "./admin/SessionsDirectory";
 import { ExternalMatchesView } from "./ExternalMatchesView";
-import { InternalMatchesWorkspace } from "./InternalMatchesWorkspace";
 import { MatchesSkeleton } from "./MatchesSkeleton";
 
 export default function MatchApp() {
+  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const currentId = useCurrentSessionId();
-
   const openLogin = useUiStore((s) => s.openLogin);
 
   function handleSelectSession(id: string) {
     selectSession(id);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    router.push(`/sessions/${id}`);
   }
 
   return authLoading ? (
     <MatchesSkeleton />
   ) : user ? (
-    <InternalMatchesWorkspace
+    <SessionsDirectory
       user={user}
-      currentSessionId={currentId}
+      currentSessionId={null}
       onSelectSession={handleSelectSession}
     />
   ) : (
     <ExternalMatchesView
-      currentSessionId={currentId}
       onSelectSession={handleSelectSession}
       onLogin={openLogin}
     />

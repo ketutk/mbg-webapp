@@ -1,6 +1,7 @@
 "use client";
 
-import { selectSession, useSessionDetail } from "@/lib/store";
+import { useRouter } from "next/navigation";
+import { useSessionDetail } from "@/lib/store";
 import type { AuthUser } from "@/lib/types";
 import { btn, card, cx, eyebrow } from "@/lib/ui";
 import { SessionView } from "./SessionView";
@@ -9,14 +10,18 @@ import { SessionViewSkeleton } from "./SessionViewSkeleton";
 export function AdminSessionContainer({
   sessionId,
   user,
+  onBackToList,
 }: {
   sessionId: string;
   user: AuthUser;
+  onBackToList?: () => void;
 }) {
+  const router = useRouter();
+  const handleBack = onBackToList ?? (() => router.push("/sessions"));
   const { data: session, error, loading } = useSessionDetail(sessionId);
 
   if (loading) {
-    return <SessionViewSkeleton onBackToList={() => selectSession(null)} />;
+    return <SessionViewSkeleton onBackToList={handleBack} />;
   }
 
   if (error || !session) {
@@ -31,16 +36,12 @@ export function AdminSessionContainer({
             ? error.message
             : "This session may have been deleted."}
         </p>
-        <button
-          type="button"
-          className={btn("primary")}
-          onClick={() => selectSession(null)}
-        >
+        <button type="button" className={btn("primary")} onClick={handleBack}>
           ← Back to all sessions
         </button>
       </section>
     );
   }
 
-  return <SessionView session={session} user={user} />;
+  return <SessionView session={session} user={user} onBackToList={handleBack} />;
 }

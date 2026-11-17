@@ -241,9 +241,12 @@ mbg-webapp-main/
 │  ├─ favicon.ico · manifest.ts · robots.ts · sitemap.ts
 │  ├─ (shell)/                       Route group = shared chrome (no URL segment)
 │  │  ├─ layout.tsx                  Server layout: <AppHeader/>, <main>, <GlobalDialogs/>, <Toast/>, <RouteOverlayReset/>
-│  │  ├─ page.tsx                    "/"          → <MatchApp/>   (indexed)
-│  │  ├─ treasury/page.tsx           "/treasury"  → <TreasuryApp/> (noindex)
-│  │  └─ admins/page.tsx             "/admins"    → <AdminsApp/>   (noindex)
+│  │  ├─ page.tsx                    "/"              → <HomeApp/>          (indexed)
+│  │  ├─ sessions/page.tsx           "/sessions"      → <MatchApp/>         (indexed)
+│  │  ├─ sessions/[id]/page.tsx      "/sessions/[id]" → <SessionDetailApp/> (Suspense wrapped)
+│  │  ├─ leaderboards/page.tsx       "/leaderboards"  → <LeaderboardsApp/>
+│  │  ├─ treasury/page.tsx           "/treasury"      → <TreasuryApp/>      (noindex)
+│  │  └─ admins/page.tsx             "/admins"        → <AdminsApp/>        (noindex)
 │  └─ api/                           Route Handlers (each file = `route({ roles, body }, handler)`)
 │     ├─ auth/{login,logout,me,password}/route.ts
 │     ├─ admins/route.ts · admins/[id]/route.ts · admins/[id]/password/route.ts
@@ -254,12 +257,14 @@ mbg-webapp-main/
 │
 ├─ components/                       "use client" UI, grouped by feature. PascalCase.tsx, named exports.
 │  ├─ providers/QueryProvider.tsx    Wraps children in the shared QueryClient
-│  ├─ layout/                        AppHeader · MobileDrawer · SyncStatus · GlobalDialogs · RouteOverlayReset · nav-items.ts
+│  ├─ layout/                        AppHeader · MobileBottomNav · SyncStatus · GlobalDialogs · RouteOverlayReset · nav-items.ts
 │  ├─ ui/                            Dialog (Dialog + ConfirmDialog) · Modal (alias re-export) · Skeleton · Toast · TablePagination
+│  ├─ home/                          HomeApp (club hub linking to /sessions and /leaderboards)
+│  ├─ leaderboards/                  LeaderboardsApp (per-session games played rankings)
 │  ├─ auth/                          LoginDialog · PasswordDialog
-│  ├─ matches/                       Match feature
-│  │  ├─ MatchApp.tsx                Route root (default export): chooses Internal vs External view
-│  │  ├─ InternalMatchesWorkspace.tsx  Organiser view: selected session + sessions directory
+│  ├─ matches/                       Sessions feature
+│  │  ├─ MatchApp.tsx                Sessions directory root: ExternalMatchesView vs SessionsDirectory
+│  │  ├─ SessionDetailApp.tsx        Session detail root (/sessions/[id]): VisitorView vs AdminSessionContainer
 │  │  ├─ ExternalMatchesView.tsx     Visitor view: open-session card grid → VisitorView
 │  │  ├─ VisitorView · VisitorQueueSection · VisitorPlayersSection
 │  │  ├─ CourtBoard · CourtCard (read-only variant for visitors) · QueuePanel · NextMatch · PlayerGrid
@@ -618,33 +623,32 @@ Zustand is for UI state only. Server data never goes into Zustand.
 
 | Route | Root component | Audience | Indexing |
 |-------|----------------|----------|----------|
-| `/` | `MatchApp` | Everyone; content depends on role | indexed |
+| `/` | `HomeApp` | Everyone; landing hub navigating to `/sessions` and `/leaderboards` | indexed |
+| `/sessions` | `MatchApp` | Everyone; open-session cards (visitors) or sessions table (organisers) | indexed |
+| `/sessions/[id]` | `SessionDetailApp` | Everyone; `VisitorView` (visitors) or `AdminSessionContainer` (organisers) | indexed |
+| `/leaderboards` | `LeaderboardsApp` | Everyone; ranked games played per open session | indexed |
 | `/treasury` | `TreasuryApp` | Organisers (visitors see "Please log in to view treasury" + Admin login button) | `noindex` |
 | `/admins` | `AdminsApp` | Superadmin (others see "Not allowed" + Back to matches) | `noindex` |
 
-### 11.2 Header and navigation (`AppHeader`, `MobileDrawer`)
+### 11.2 Header and navigation (`AppHeader`, `MobileBottomNav`)
 
-- Left: logo (`next/image`, priority) + "Minggu Badminton Guys / FAIR MATCH PLANNER", linking to `/`.
-- **Desktop (> 860 px):** sync status ("Live" dot / "Syncing…" spinner from `useIsFetching`). Logged out → "Admin login" (and "← Back to matches" outside `/`). Logged in → nav links *Matches, Treasury, Admins (superadmin)*, username + role pill, **Password**, **＋ New session** (superadmin, on `/` only), **Log out**.
-- **Tablet/phone (≤ 860 px):** compact bar with **＋ New** (superadmin on `/`) and **☰ Menu**, which opens a right-side drawer (`MobileDrawer`) with sync status, profile card, nav links, quick actions and Log out. Closes on backdrop click, `Esc`, or route change.
+- Sticky header (`sticky top-0`): left = logo (`next/image`, priority) + "Minggu Badminton Guys / FAIR MATCH PLANNER", linking to `/`. Auto-fades out when scrolling down (`> 8 px`) and reappears when scrolling up (`> 6 px`) or near the top (`≤ 16 px`).
+- **Desktop (> 860 px):** sync status ("Live" dot / "Syncing…" spinner from `useIsFetching`), nav links (`Home`, `Sessions`, `Leaderboards`, plus `Treasury` and `Admins` when logged in), then either "Admin login" (logged out) or username + role pill, **Password**, **＋ New session** (superadmin, on `/sessions`), **Log out** (logged in).
+- **Tablet/phone (≤ 860 px):** compact top bar with `SyncStatus` plus **＋ New** (superadmin on `/sessions`) or **Admin login** (logged out), paired with a fixed floating bottom navigation bar (`MobileBottomNav`). When visible items exceed 4 (logged-in admins with 5 items), renders the first 3 items (`Home`, `Sessions`, `Leaderboards`) plus a **More** button that opens an upward popover containing `Treasury`, `Admins`, and account actions (`＋ New session`, `Password`, `Log out`).
 
-### 11.3 `/` for visitors
+### 11.3 `/sessions` and `/sessions/[id]` for visitors
 
-1. Hero ("Live match day" / "Play fair. Play more.") with open-session count pill and "Syncing…" indicator.
-2. Optional name search (shown when > 3 open sessions or a search is active).
-3. Card grid of open sessions (date, name, courts/players/matches counters, "View session →"); pager when > 9.
-4. Selecting a card shows `VisitorView`: header (date, Open/Closed pill, name, "← All sessions"), **Courts**, **Queue**, **Games played** (§3.8).
+1. `/sessions`: Hero ("Live match day" / "Play fair. Play more.") with open-session count pill, optional name search (when > 3 open sessions or active search), and open session card grid (pager when > 9).
+2. Clicking a card navigates to `/sessions/[id]` rendering `VisitorView`: header (date, Open/Closed pill, name, "← All sessions"), **Courts**, **Queue**, **Games played** (§3.8).
 
-### 11.4 `/` for organisers (`InternalMatchesWorkspace`)
+### 11.4 `/sessions` and `/sessions/[id]` for organisers
 
-Top to bottom:
-
-1. **Selected session** (if any) — `SessionView`:
+1. **`/sessions` (`SessionsDirectory`)**: Hero ("Organiser dashboard" / "Match sessions"), card with open/closed pills, filter toolbar (period, status, name search), table (view detail link to `/sessions/[id]`, close/reopen, delete for superadmin), pagination (5 / 10 / 25 / 50 rows).
+2. **`/sessions/[id]` (`AdminSessionContainer` → `SessionView`)**:
    1. `SessionHeaderBar`: date + status pill, session name (h1), *← All sessions*, *Close/Reopen session*, *History · n*; **superadmin only:** *Edit players*, *Session settings*, *Delete*.
    2. **Courts** (`CourtBoard`): `CourtCard` grid (2 cols, 1 on mobile). Occupied: Court N, Team A vs Team B, "Playing since hh:mm", *Edit players*, *✓ Finish match*. Empty (dashed): *＋ Assign players* and *▶ Play next in queue* when the queue has items.
-   2. **Queue** (`QueuePanel`): ordered list with "Queued" pill, ▲ ▼, Edit, ✕ (confirm), *＋ Add to queue*.
-   3. Two-column area (1.7fr / 1fr; stacked on mobile): **Games played** (`PlayerGrid`, left) and **Next match** (`NextMatch`, right, sticky on desktop; first on mobile) with *Shuffle*, *Assign to court*, *Add to queue*, and the waiting list.
-2. **Sessions directory** (`SessionsDirectory`): hero (only when no session is selected), card with open/closed pills, filter toolbar (period: all / this month / last 30 days / this year / custom; status; name search), table (open, close/reopen, delete for superadmin), pagination (5 / 10 / 25 / 50 rows).
+   3. **Queue** (`QueuePanel`): ordered list with "Queued" pill, ▲ ▼, Edit, ✕ (confirm), *＋ Add to queue*.
+   4. Two-column area (1.7fr / 1fr; stacked on mobile): **Games played** (`PlayerGrid`, left) and **Next match** (`NextMatch`, right, sticky on desktop; first on mobile) with *Shuffle*, *Assign to court*, *Add to queue*, and the waiting list.
 
 ### 11.5 `/treasury`
 

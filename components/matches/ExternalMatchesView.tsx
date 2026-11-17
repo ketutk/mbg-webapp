@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { SkeletonBar } from "@/components/ui/Skeleton";
 import { fmtDate } from "@/lib/format";
-import { selectSession, useSessionsList } from "@/lib/store";
+import { useSessionsList } from "@/lib/store";
 import {
   btn,
   card,
@@ -16,14 +16,11 @@ import {
   spinner,
 } from "@/lib/ui";
 import { ExternalMatchesSkeleton } from "./ExternalMatchesSkeleton";
-import { VisitorView } from "./VisitorView";
 
 export function ExternalMatchesView({
-  currentSessionId,
   onSelectSession,
   onLogin,
 }: {
-  currentSessionId: string | null;
   onSelectSession: (id: string) => void;
   onLogin: () => void;
 }) {
@@ -42,16 +39,6 @@ export function ExternalMatchesView({
   );
 
   const { data, loading, fetching } = useSessionsList(filterParams);
-
-  if (currentSessionId) {
-    return (
-      <VisitorView
-        key={currentSessionId}
-        sessionId={currentSessionId}
-        onBackToList={() => selectSession(null)}
-      />
-    );
-  }
 
   return (
     <>
