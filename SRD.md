@@ -60,7 +60,8 @@ Out of scope: player accounts, online payments, notifications, multi-club tenanc
 | List **open** sessions; per-session public summary (courts, queue, games played) | ✅ | ✅ | ✅ |
 | See **closed** sessions (list + summary) | ❌ | ✅ | ✅ |
 | **Open / close** a session (status toggle) | ❌ | ✅ | ✅ |
-| Create session; edit name, date, court count; edit roster; delete session | ❌ | ❌ | ✅ |
+| Create session; edit name, date, court count; edit roster | ❌ | ✅ | ✅ |
+| Delete session | ❌ | ❌ | ✅ |
 | Open the full session (detail, checklist, history, recommendation) | ❌ | ✅ | ✅ |
 | Assign match to court/queue; edit players; finish; promote; reorder; delete; clear all matches | ❌ | ✅ | ✅ |
 | Tick/untick checklist; lock/unlock a column | ❌ | ✅ | ✅ |
@@ -107,11 +108,11 @@ Requirement IDs are kept stable from the earlier SRD so old references still wor
 
 | ID | Requirement |
 |----|-------------|
-| FR-SES-1 | **Superadmin** creates a session: name (1–60, defaults to `Game day <yyyy-mm-dd>` in the dialog), date (`yyyy-mm-dd`, no time), court count (1–8, default 1), status (`OPEN` default / `CLOSED`), roster (one name per line, max 60 names, 1–40 chars, de-duplicated case-insensitively). |
-| FR-SES-2 | **Superadmin** edits name, date, court count. Court count cannot go below the highest occupied court (409 `COURT_OCCUPIED`). |
-| FR-SES-3 | **Superadmin** edits the roster. Same name (case-insensitive) keeps its player id and games. Removed players lose their ticks; every game they were in is **unlocked** and its team split cleared. New players are appended; order follows the pasted order. |
+| FR-SES-1 | **Any organiser** (Admin or Superadmin) creates a session: name (1–60, defaults to `Game day <yyyy-mm-dd>` in the dialog), date (`yyyy-mm-dd`, no time), court count (1–8, default 1), status (`OPEN` default / `CLOSED`), roster (one name per line, max 60 names, 1–40 chars, de-duplicated case-insensitively). |
+| FR-SES-2 | **Any organiser** edits name, date, court count. Court count cannot go below the highest occupied court (409 `COURT_OCCUPIED`). |
+| FR-SES-3 | **Any organiser** edits the roster. Same name (case-insensitive) keeps its player id and games. Removed players lose their ticks; every game they were in is **unlocked** and its team split cleared. New players are appended; order follows the pasted order. |
 | FR-SES-4 | **Superadmin** deletes a session (cascade to players, matches, ticks). |
-| FR-SES-5 | **Any organiser** (Admin or Superadmin) can toggle the session **status** (`OPEN` ↔ `CLOSED`). Any other field in the same PATCH from an Admin → 403. |
+| FR-SES-5 | **Any organiser** (Admin or Superadmin) can toggle the session **status** (`OPEN` ↔ `CLOSED`). |
 | FR-SES-6 | **Visibility:** `CLOSED` sessions are hidden from visitors. The list excludes them (visitors always get `status = OPEN`, counts exclude closed) and `GET /summary` returns 403 `SESSION_CLOSED`. |
 | FR-SES-7 | **Session list** (`GET /api/sessions`): filters `from`, `to` (`yyyy-mm-dd`), `status` (`ALL`/`OPEN`/`CLOSED`, organisers only), `q` (name contains, case-insensitive); pagination `page`, `pageSize` (clamped 5–100, default 10); ordered by date desc then creation desc; returns `openCount` / `closedCount` for the current date+name filter. Each item has `courtCount`, `playerCount`, `gameCount`. |
 | FR-SES-8 | The selected session id is a **per-device preference** stored in `localStorage` key `mbg-current-v2` and synced across tabs through the `storage` event. A non-authoritative UI boot hint (`{ role: "organiser" \| "visitor" }`) is stored in `localStorage` key `mbg-boot-v1` strictly to pick which queries `QueryProvider` prefetches in parallel on initial load; never used for access control or server trust. |
@@ -525,12 +526,12 @@ Base `/api`. JSON in and out. Every response carries `Cache-Control: no-store`. 
 | `DELETE /admins/:id` | S | soft delete + revoke tokens → `{ ok }` |
 | `PUT /admins/:id/password` | S | `adminPasswordInput` → `{ ok }` |
 | `GET /sessions` | P | query `from,to,status,q,page,pageSize` → `SessionsPage` (visitors: open only) |
-| `POST /sessions` | S | `sessionInput` → 201 `{ session }` |
+| `POST /sessions` | A | `sessionInput` → 201 `{ session }` |
 | `GET /sessions/:id` | A | → `{ session }` (full) |
-| `PATCH /sessions/:id` | A | `sessionPatchInput` → `{ session }`; non-status fields need S (else 403) |
+| `PATCH /sessions/:id` | A | `sessionPatchInput` → `{ session }` |
 | `DELETE /sessions/:id` | S | cascade → `{ ok }` |
 | `GET /sessions/:id/summary` | P | → `{ summary }`; closed + visitor → 403 `SESSION_CLOSED` |
-| `PUT /sessions/:id/players` | S | `rosterInput` (diff by name, one transaction) → `{ session }` |
+| `PUT /sessions/:id/players` | A | `rosterInput` (diff by name, one transaction) → `{ session }` |
 | `POST /sessions/:id/games` | A | `assignInput` → 201 `{ game }` (locked on creation) |
 | `DELETE /sessions/:id/games` | A | clear all matches → `{ ok }` |
 | `PUT /sessions/:id/queue` | A | `queueOrderInput` → `{ session }` |
@@ -637,8 +638,8 @@ Zustand is for UI state only. Server data never goes into Zustand.
 ### 11.2 Header and navigation (`AppHeader`, `MobileBottomNav`)
 
 - Sticky header (`sticky top-0`): left = logo (`next/image`, priority) + "Minggu Badminton Guys / FAIR MATCH PLANNER", linking to `/`. Auto-fades out when scrolling down (`> 8 px`) and reappears when scrolling up (`> 6 px`) or near the top (`≤ 16 px`).
-- **Desktop (> 860 px):** sync status ("Live" dot / "Syncing…" spinner from `useIsFetching`), nav links (`Home`, `Sessions`, `Leaderboards`, plus `Treasury` and `Admins` when logged in), then either "Admin login" (logged out) or username + role pill, **Password**, **＋ New session** (superadmin, on `/sessions`), **Log out** (logged in).
-- **Tablet/phone (≤ 860 px):** compact top bar with `SyncStatus` plus **＋ New** (superadmin on `/sessions`) or **Admin login** (logged out), paired with a fixed floating bottom navigation bar (`MobileBottomNav`). When visible items exceed 4 (logged-in admins with 5 items), renders the first 3 items (`Home`, `Sessions`, `Leaderboards`) plus a **More** button that opens an upward popover containing `Treasury`, `Admins`, and account actions (`＋ New session`, `Password`, `Log out`).
+- **Desktop (> 860 px):** sync status ("Live" dot / "Syncing…" spinner from `useIsFetching`), nav links (`Home`, `Sessions`, `Leaderboards`, plus `Treasury` and `Admins` when logged in), then either "Admin login" (logged out) or username + role pill, **Password**, **＋ New session** (organisers, on `/sessions`), **Log out** (logged in).
+- **Tablet/phone (≤ 860 px):** compact top bar with `SyncStatus` plus **＋ New** (organisers, on `/sessions`) or **Admin login** (logged out), paired with a fixed floating bottom navigation bar (`MobileBottomNav`). When visible items exceed 4 (logged-in admins with 5 items), renders the first 3 items (`Home`, `Sessions`, `Leaderboards`) plus a **More** button that opens an upward popover containing `Treasury`, `Admins`, and account actions (`＋ New session`, `Password`, `Log out`).
 
 ### 11.3 `/sessions` and `/sessions/[id]` for visitors
 
@@ -649,7 +650,7 @@ Zustand is for UI state only. Server data never goes into Zustand.
 
 1. **`/sessions` (`SessionsDirectory`)**: Hero ("Organiser dashboard" / "Match sessions"), card with open/closed pills, filter toolbar (period, status, name search), table (view detail link to `/sessions/[id]`, close/reopen, delete for superadmin), pagination (5 / 10 / 25 / 50 rows).
 2. **`/sessions/[id]` (`AdminSessionContainer` → `SessionView`)**:
-   1. `SessionHeaderBar`: date + status pill, session name (h1), *← All sessions*, *Leaderboard*, *Close/Reopen session*, *History · n*; **superadmin only:** *Edit players*, *Session settings*, *Delete*.
+   1. `SessionHeaderBar`: date + status pill, session name (h1), *← All sessions*, *Leaderboard*, *Close/Reopen session*, *History · n*, *Edit players*, *Session settings*; **superadmin only:** *Delete*.
    2. **Courts** (`CourtBoard`): `CourtCard` grid (2 cols, 1 on mobile). Occupied: Court N, Team A vs Team B, "Playing since hh:mm", *Edit players*, *✓ Finish match*. Empty (dashed): *＋ Assign players* and *▶ Play next in queue* when the queue has items.
    3. **Queue** (`QueuePanel`): ordered list with "Queued" pill, ▲ ▼, Edit, ✕ (confirm), *＋ Add to queue*.
    4. Two-column area (1.7fr / 1fr; stacked on mobile): **Games played** (`PlayerGrid`, left) and **Next match** (`NextMatch`, right, sticky on desktop; first on mobile) with *Shuffle*, *Assign to court*, *Add to queue*, and the waiting list.
@@ -670,9 +671,9 @@ All use `components/ui/Dialog.tsx` (`Dialog`, `ConfirmDialog`; `Modal` is an unu
 |--------|-------------|-------|
 | `LoginDialog` ("Admin login") | header, visitor empty state, treasury gate | everyone |
 | `PasswordDialog` ("Change password") | header / drawer | organisers |
-| `SessionDialog` ("New game session": name, date, courts, status, players text) | header "＋ New session" via `GlobalDialogs` | superadmin |
-| `SessionSettingsDialog` (name, date, courts, open/closed) | `SessionHeaderBar` | superadmin |
-| `RosterDialog` ("Edit players") | `SessionHeaderBar` | superadmin |
+| `SessionDialog` ("New game session": name, date, courts, status, players text) | header "＋ New session" via `GlobalDialogs` | organisers |
+| `SessionSettingsDialog` (name, date, courts, open/closed) | `SessionHeaderBar` | organisers |
+| `RosterDialog` ("Edit players") | `SessionHeaderBar` | organisers |
 | `AssignDialog` (court picker or queue, Team A/B selects, "use recommendation", busy hints; also edits a match) | CourtBoard, QueuePanel, NextMatch | organisers |
 | `FinishMatchDialog` (records Team A / Team B final scores on finish, no ties) | CourtCard (`✓ Finish match`) via `SessionView` | organisers |
 | `HistoryDialog` ("Match history", newest first; status pill, court, score pill, lock info, remove) | `SessionHeaderBar` | organisers |

@@ -90,7 +90,7 @@ export function AppHeader() {
   const lastScrollY = useRef(0);
 
   const isSuperadmin = user?.role === "SUPERADMIN";
-  const showNewSession = isSuperadmin && active === "sessions";
+  const showNewSession = Boolean(user) && active === "sessions";
   const desktopItems = NAV_ITEMS.filter(
     (item) =>
       (!item.organiserOnly || Boolean(user)) &&

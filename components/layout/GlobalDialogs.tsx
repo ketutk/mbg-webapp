@@ -17,7 +17,6 @@ const SessionDialog = dynamic(() =>
 
 export function GlobalDialogs() {
   const { user } = useAuth();
-  const isSuperadmin = user?.role === "SUPERADMIN";
   const loginOpen = useUiStore((s) => s.loginOpen);
   const passwordOpen = useUiStore((s) => s.passwordOpen);
   const newSessionOpen = useUiStore((s) => s.newSessionOpen);
@@ -32,9 +31,7 @@ export function GlobalDialogs() {
         void import("@/components/auth/LoginDialog");
       } else {
         void import("@/components/auth/PasswordDialog");
-        if (isSuperadmin) {
-          void import("@/components/matches/SessionDialog");
-        }
+        void import("@/components/matches/SessionDialog");
       }
     };
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
@@ -43,13 +40,11 @@ export function GlobalDialogs() {
     }
     const t = setTimeout(warm, 1500);
     return () => clearTimeout(t);
-  }, [user, isSuperadmin]);
+  }, [user]);
 
   return (
     <>
-      {newSessionOpen && isSuperadmin && (
-        <SessionDialog onClose={closeNewSession} />
-      )}
+      {newSessionOpen && user && <SessionDialog onClose={closeNewSession} />}
       {loginOpen && (
         <LoginDialog
           onClose={closeLogin}

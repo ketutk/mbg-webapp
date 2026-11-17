@@ -109,7 +109,6 @@ export function SessionsDirectory({
         <SessionsHero
           openCount={data.openCount}
           closedCount={data.closedCount}
-          isSuperadmin={isSuperadmin}
         />
       )}
 

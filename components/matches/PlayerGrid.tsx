@@ -38,11 +38,9 @@ const rowBg = (isNext: boolean) =>
 export function PlayerGrid({
   session,
   nextUp,
-  isSuperadmin,
 }: {
   session: Session;
   nextUp: Set<string>;
-  isSuperadmin?: boolean;
 }) {
   const showToast = useToast();
   const [pendingTicks, setPendingTicks] = useState<Set<string>>(() => new Set());
@@ -132,9 +130,7 @@ export function PlayerGrid({
 
       {session.players.length === 0 ? (
         <div className={empty}>
-          {isSuperadmin
-            ? "No players yet. Use “Edit players” to add your roster."
-            : "No players in this session yet."}
+          No players yet. Use “Edit players” to add your roster.
         </div>
       ) : (
         <div className="overflow-x-auto border-t border-[#eef4f9]">

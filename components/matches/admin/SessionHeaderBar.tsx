@@ -72,37 +72,35 @@ export function SessionHeaderBar({
         >
           History · {session.games.length}
         </button>
+        <button
+          id="edit-players"
+          className={btn("light")}
+          onClick={onEditRoster}
+        >
+          Edit players
+        </button>
+        <button
+          id="session-settings"
+          className={btn("light")}
+          onClick={onEditSettings}
+        >
+          Session settings
+        </button>
         {isSuperadmin && (
-          <>
-            <button
-              id="edit-players"
-              className={btn("light")}
-              onClick={onEditRoster}
-            >
-              Edit players
-            </button>
-            <button
-              id="session-settings"
-              className={btn("light")}
-              onClick={onEditSettings}
-            >
-              Session settings
-            </button>
-            <button
-              className={btn("danger")}
-              disabled={deletingSession}
-              onClick={onRequestDelete}
-            >
-              {deletingSession ? (
-                <>
-                  <span className={cx(spinner, "mr-1.5")} />
-                  Deleting…
-                </>
-              ) : (
-                "Delete"
-              )}
-            </button>
-          </>
+          <button
+            className={btn("danger")}
+            disabled={deletingSession}
+            onClick={onRequestDelete}
+          >
+            {deletingSession ? (
+              <>
+                <span className={cx(spinner, "mr-1.5")} />
+                Deleting…
+              </>
+            ) : (
+              "Delete"
+            )}
+          </button>
         )}
       </div>
     </section>

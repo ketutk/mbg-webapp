@@ -192,22 +192,7 @@ export async function createSessionRecord(
 export async function updateSessionRecord(
   id: string,
   input: SessionPatchInput,
-  user: AuthUser,
 ): Promise<Session> {
-  const isSuperadmin = user.role === "SUPERADMIN";
-  if (
-    !isSuperadmin &&
-    (input.name !== undefined ||
-      input.date !== undefined ||
-      input.courtCount !== undefined)
-  ) {
-    throw new HttpError(
-      403,
-      "FORBIDDEN",
-      "Only superadmins can edit session name, date, or court count.",
-    );
-  }
-
   const updated = await prisma.$transaction(async (tx) => {
     const existing = await tx.session.findUnique({
       where: { id },

@@ -6,11 +6,9 @@ import { btn, eyebrow, h1 } from "@/lib/ui";
 export function SessionsHero({
   openCount,
   closedCount,
-  isSuperadmin,
 }: {
   openCount: number;
   closedCount: number;
-  isSuperadmin: boolean;
 }) {
   const openNewSession = useUiStore((s) => s.openNewSession);
 
@@ -25,14 +23,11 @@ export function SessionsHero({
           player checklist.
         </div>
       </div>
-      {isSuperadmin && (
-        <div className="flex flex-wrap items-center gap-2">
-          <button className={btn("primary")} onClick={openNewSession}>
-            ＋ New session
-          </button>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button className={btn("primary")} onClick={openNewSession}>
+          ＋ New session
+        </button>
+      </div>
     </section>
   );
 }
-

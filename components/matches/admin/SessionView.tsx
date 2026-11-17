@@ -84,10 +84,8 @@ export function SessionView({
       void import("../AssignDialog");
       void import("../FinishMatchDialog");
       void import("../HistoryDialog");
-      if (isSuperadmin) {
-        void import("../RosterDialog");
-        void import("../SessionSettingsDialog");
-      }
+      void import("../RosterDialog");
+      void import("../SessionSettingsDialog");
     };
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
       const id = window.requestIdleCallback(warm, { timeout: 2500 });
@@ -95,7 +93,7 @@ export function SessionView({
     }
     const t = setTimeout(warm, 1500);
     return () => clearTimeout(t);
-  }, [isSuperadmin]);
+  }, []);
 
   async function handleToggleSessionStatus() {
     const nextStatus: SessionStatus =
@@ -248,22 +246,18 @@ export function SessionView({
           />
         </div>
         <div className="order-1 min-w-0 max-[860px]:order-2">
-          <PlayerGrid
-            session={session}
-            nextUp={nextUp}
-            isSuperadmin={isSuperadmin}
-          />
+          <PlayerGrid session={session} nextUp={nextUp} />
         </div>
       </div>
 
-      {editingRoster && isSuperadmin && (
+      {editingRoster && (
         <RosterDialog
           session={session}
           onClose={() => setEditingRoster(false)}
           onSaved={showToast}
         />
       )}
-      {editingSettings && isSuperadmin && (
+      {editingSettings && (
         <SessionSettingsDialog
           session={session}
           onClose={() => setEditingSettings(false)}

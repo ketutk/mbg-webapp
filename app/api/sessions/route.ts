@@ -24,7 +24,7 @@ export const GET = route({ roles: "public" }, async ({ req, user }) => {
 });
 
 export const POST = route(
-  { roles: ["SUPERADMIN"], body: sessionInput },
+  { roles: ["ADMIN", "SUPERADMIN"], body: sessionInput },
   async ({ body, user }) => {
     const session = await createSessionRecord(body, user.id);
     return created({ session });

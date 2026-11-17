@@ -59,7 +59,7 @@ export default function HomeApp() {
             <Link href="/sessions" className={btn("primary", "lg")}>
               Go to sessions →
             </Link>
-            {!authLoading && isSuperadmin && (
+            {!authLoading && user && (
               <button
                 type="button"
                 className={btn("light", "lg")}

@@ -167,18 +167,16 @@ export function MobileBottomNav({
 
             {user && (
               <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-[#eef4f9] pt-2.5">
-                {isSuperadmin && (
-                  <button
-                    type="button"
-                    className={cx(btn("primary", "sm"), "flex-1")}
-                    onClick={() => {
-                      setOpenOnPath(null);
-                      openNewSession();
-                    }}
-                  >
-                    ＋ New session
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className={cx(btn("primary", "sm"), "flex-1")}
+                  onClick={() => {
+                    setOpenOnPath(null);
+                    openNewSession();
+                  }}
+                >
+                  ＋ New session
+                </button>
                 <button
                   type="button"
                   className={cx(btn("light", "sm"), "flex-1")}

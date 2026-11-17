@@ -30,9 +30,7 @@ export function SessionsTable({
       <div className={empty}>
         {hasActiveFilters
           ? "No sessions match your current filter. Try adjusting the date range, status, or search query."
-          : isSuperadmin
-            ? "No game sessions yet. Click “＋ New session” to create your first session."
-            : "No game sessions yet. Ask a superadmin to create the first session."}
+          : "No game sessions yet. Click “＋ New session” to create your first session."}
       </div>
     );
   }
