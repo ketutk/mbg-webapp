@@ -34,7 +34,7 @@ export function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-20 grid animate-fade place-items-center bg-[#23466ac9] p-[18px]"
+      className="fixed inset-0 z-50 grid animate-fade place-items-center bg-[#23466ac9] p-[18px]"
       role="dialog"
       aria-modal="true"
       aria-label={title}

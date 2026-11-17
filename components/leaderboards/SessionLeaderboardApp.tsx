@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { fmtDate } from "@/lib/format";
 import { initials } from "@/lib/initials";
 import { useSessionSummary } from "@/lib/store";
+import type { SessionSummary } from "@/lib/types";
 import {
   avatar,
   btn,
@@ -20,6 +21,27 @@ import {
   sub,
 } from "@/lib/ui";
 import { SessionLeaderboardSkeleton } from "./SessionLeaderboardSkeleton";
+
+function rankPlayersWithTies(players: SessionSummary["players"]) {
+  const sorted = [...players].sort(
+    (a, b) =>
+      b.wins - a.wins || a.losses - b.losses || a.name.localeCompare(b.name),
+  );
+  const out: { player: SessionSummary["players"][number]; rank: number }[] = [];
+  let rank = 1;
+  for (let i = 0; i < sorted.length; i++) {
+    const player = sorted[i];
+    if (
+      i > 0 &&
+      (player.wins !== sorted[i - 1].wins ||
+        player.losses !== sorted[i - 1].losses)
+    ) {
+      rank += 1;
+    }
+    out.push({ player, rank });
+  }
+  return out;
+}
 
 export default function SessionLeaderboardApp() {
   const params = useParams<{ id: string }>();
@@ -52,12 +74,12 @@ export default function SessionLeaderboardApp() {
     );
   }
 
-  const rankedPlayers = [...summary.players].sort(
-    (a, b) =>
-      b.wins - a.wins || a.losses - b.losses || a.name.localeCompare(b.name),
-  );
+  const rankedWithTies = rankPlayersWithTies(summary.players);
 
-  const totalWinsRecorded = rankedPlayers.reduce((sum, p) => sum + p.wins, 0);
+  const totalWinsRecorded = rankedWithTies.reduce(
+    (sum, item) => sum + item.player.wins,
+    0,
+  );
 
   return (
     <>
@@ -109,17 +131,16 @@ export default function SessionLeaderboardApp() {
             </div>
           </div>
           <span className={pill("default")}>
-            {rankedPlayers.length} player
-            {rankedPlayers.length === 1 ? "" : "s"}
+            {rankedWithTies.length} player
+            {rankedWithTies.length === 1 ? "" : "s"}
           </span>
         </div>
 
-        {rankedPlayers.length === 0 ? (
+        {rankedWithTies.length === 0 ? (
           <div className={empty}>No players in this session yet.</div>
         ) : (
           <ul className="list-none border-t border-[#eef4f9]">
-            {rankedPlayers.map((player, index) => {
-              const rank = index + 1;
+            {rankedWithTies.map(({ player, rank }) => {
               return (
                 <li
                   key={player.id}

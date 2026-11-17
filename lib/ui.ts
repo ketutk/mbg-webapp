@@ -102,4 +102,4 @@ export const notice = "min-h-4 text-[11px] text-muted";
 export const errorNotice = "min-h-4 text-[11px] font-bold text-[#b5524f]";
 export const modalActions = "mt-3.5 flex justify-end gap-2";
 export const toastBox =
-  "pointer-events-none fixed bottom-[22px] left-1/2 z-40 max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-xl bg-[#285c8d] px-4 py-[11px] text-xs text-white shadow-[0_8px_22px_#23598b35] transition-all duration-200 max-[860px]:bottom-[92px]";
+  "pointer-events-none fixed bottom-[22px] left-1/2 z-60 max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-xl bg-[#285c8d] px-4 py-[11px] text-xs text-white shadow-[0_8px_22px_#23598b35] transition-all duration-200 max-[860px]:bottom-[92px]";
