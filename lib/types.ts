@@ -20,6 +20,7 @@ export interface AdminUser {
 export interface Player {
   id: string;
   name: string;
+  paid: boolean;
 }
 
 export type Team = [string, string];
@@ -94,9 +95,14 @@ export interface SessionsPage {
 export interface PublicGame {
   id: string;
   /** QUEUED = the "Queued" flag (A6). */
-  status: "ON_COURT" | "QUEUED";
+  status: GameStatus;
   courtNumber?: number;
   queueOrder?: number;
+  createdAt?: number;
+  startedAt?: number;
+  finishedAt?: number;
+  scoreA?: number;
+  scoreB?: number;
   playerIds: string[];
   teams?: [Team, Team];
 }
@@ -119,6 +125,8 @@ export interface SessionSummary {
   }[];
   courts: PublicGame[];
   queue: PublicGame[];
+  /** Ordered by creation sequence (`seq`); omits internal lock metadata. */
+  games: PublicGame[];
 }
 
 export interface TreasuryEntry {

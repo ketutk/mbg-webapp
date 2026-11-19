@@ -26,6 +26,7 @@ import { CourtBoard } from "../CourtBoard";
 import { NextMatch } from "../NextMatch";
 import { PlayerGrid } from "../PlayerGrid";
 import { QueuePanel } from "../QueuePanel";
+import { PaymentChecklistCard } from "./PaymentChecklistCard";
 import { SessionHeaderBar } from "./SessionHeaderBar";
 
 const AssignDialog = dynamic(() =>
@@ -249,6 +250,8 @@ export function SessionView({
           <PlayerGrid session={session} nextUp={nextUp} />
         </div>
       </div>
+
+      <PaymentChecklistCard session={session} />
 
       {editingRoster && (
         <RosterDialog

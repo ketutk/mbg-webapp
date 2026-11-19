@@ -81,6 +81,7 @@ model Player {
   name      String
   nameKey   String
   position  Int
+  paid      Boolean      @default(false)
   session   Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   games     GamePlayer[]
 

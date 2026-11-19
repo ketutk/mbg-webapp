@@ -173,6 +173,33 @@ export function SessionViewSkeleton({
           </section>
         </div>
       </div>
+
+      <section
+        className={cx(card, "mt-5")}
+        aria-labelledby="payment-checklist-title"
+      >
+        <div className={cardHead}>
+          <div>
+            <h2 className={cardTitle} id="payment-checklist-title">
+              Payment checklist
+            </h2>
+            <div className={sub}>
+              Organisers only · track which players have paid for this session.
+            </div>
+          </div>
+          <SkeletonBar w="w-24" h="h-5" className="rounded-full" />
+        </div>
+        <div className="grid grid-cols-3 gap-2.5 border-t border-[#eef4f9] px-[22px] py-4 max-[860px]:grid-cols-2 max-[860px]:px-[15px] max-[520px]:grid-cols-1">
+          {[0, 1, 2, 3, 4, 5].map((cell) => (
+            <SkeletonBar
+              key={cell}
+              w="w-full"
+              h="h-14"
+              className="rounded-2xl"
+            />
+          ))}
+        </div>
+      </section>
     </SkeletonRegion>
   );
 }

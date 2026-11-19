@@ -70,6 +70,10 @@ export const rosterInput = z.object({
   names: sessionInput.shape.names,
 });
 
+export const playerPaidInput = z.object({
+  paid: z.boolean(),
+});
+
 export const teamsSchema = z
   .tuple([
     z.tuple([z.string().min(1), z.string().min(1)]),
@@ -162,6 +166,7 @@ export type AdminPasswordInput = z.infer<typeof adminPasswordInput>;
 export type SessionInput = z.infer<typeof sessionInput>;
 export type SessionPatchInput = z.infer<typeof sessionPatchInput>;
 export type RosterInput = z.infer<typeof rosterInput>;
+export type PlayerPaidInput = z.infer<typeof playerPaidInput>;
 export type AssignInput = z.infer<typeof assignInput>;
 export type GameUpdateInput = z.infer<typeof gameUpdateInput>;
 export type TickInput = z.infer<typeof tickInput>;

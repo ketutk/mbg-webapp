@@ -9,12 +9,14 @@ import {
 } from "./dto";
 import { HttpError } from "./http";
 import type {
+  PlayerPaidInput,
   RosterInput,
   SessionInput,
   SessionPatchInput,
 } from "@/lib/schemas";
 import type {
   AuthUser,
+  Player,
   Session,
   SessionSummary,
   SessionsFilterParams,
@@ -325,5 +327,29 @@ export async function replaceSessionRoster(
   }, TX_OPTIONS);
 
   return toSessionDTO(updated);
+}
+
+export async function setSessionPlayerPaid(
+  sessionId: string,
+  playerId: string,
+  input: PlayerPaidInput,
+): Promise<Player> {
+  const existing = await prisma.player.findUnique({
+    where: { id: playerId },
+  });
+  if (!existing || existing.sessionId !== sessionId) {
+    throw new HttpError(404, "NOT_FOUND", "Player not found in this session.");
+  }
+
+  const updated = await prisma.player.update({
+    where: { id: playerId },
+    data: { paid: input.paid },
+  });
+
+  return {
+    id: updated.id,
+    name: updated.name,
+    paid: updated.paid,
+  };
 }
 

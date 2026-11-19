@@ -1,7 +1,7 @@
 import { api } from "../api";
 import { queryClient, queryKeys } from "../query";
 import type { SessionInput, SessionPatchInput } from "../schemas";
-import type { Session } from "../types";
+import type { Player, Session } from "../types";
 import { CURRENT_KEY, selectSession } from "./current-session";
 
 export async function createSession(input: SessionInput): Promise<Session> {
@@ -59,5 +59,51 @@ export async function setRoster(
     queryKey: queryKeys.sessionSummary(sessionId),
   });
   return session;
+}
+
+export async function setPlayerPaid(
+  sessionId: string,
+  playerId: string,
+  paid: boolean,
+): Promise<Player> {
+  const key = queryKeys.sessionDetail(sessionId);
+  await queryClient.cancelQueries({ queryKey: key });
+  const prevSession = queryClient.getQueryData<Session>(key);
+
+  if (prevSession) {
+    queryClient.setQueryData<Session>(key, (s) =>
+      s
+        ? {
+            ...s,
+            players: s.players.map((p) =>
+              p.id === playerId ? { ...p, paid } : p,
+            ),
+          }
+        : s,
+    );
+  }
+
+  try {
+    const { player } = await api<{ player: Player }>(
+      `/sessions/${sessionId}/players/${playerId}`,
+      {
+        method: "PUT",
+        body: { paid },
+      },
+    );
+    queryClient.setQueryData<Session>(key, (s) =>
+      s
+        ? {
+            ...s,
+            players: s.players.map((p) => (p.id === playerId ? player : p)),
+          }
+        : s,
+    );
+    return player;
+  } catch (err) {
+    if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
+    void queryClient.invalidateQueries({ queryKey: key });
+    throw err;
+  }
 }
 

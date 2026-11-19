@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { fmtTime } from "@/lib/format";
 import { removeGame } from "@/lib/store";
-import type { Session } from "@/lib/types";
+import type { Game, PublicGame } from "@/lib/types";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import {
   btn,
@@ -17,9 +17,16 @@ import {
 
 export function HistoryDialog({
   session,
+  readOnly = false,
   onClose,
 }: {
-  session: Session;
+  session: {
+    id: string;
+    name: string;
+    players: { id: string; name: string }[];
+    games: (Game | PublicGame)[];
+  };
+  readOnly?: boolean;
   onClose: () => void;
 }) {
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -102,7 +109,7 @@ export function HistoryDialog({
                           : ""}
                       </span>
                     )}
-                    {g.locked && (
+                    {!readOnly && "locked" in g && g.locked && (
                       <span
                         className="text-[11px] text-muted"
                         title="Column is locked"
@@ -110,21 +117,23 @@ export function HistoryDialog({
                         🔒
                       </span>
                     )}
-                    <button
-                      className={cx(linkBtn, "ml-auto text-[#b5524f]")}
-                      aria-label={`Remove game ${n}`}
-                      disabled={isRemoving}
-                      onClick={() => setConfirmTarget({ gameId: g.id, n })}
-                    >
-                      {isRemoving ? (
-                        <>
-                          <span className={cx(spinner, "mr-1")} />
-                          Removing…
-                        </>
-                      ) : (
-                        "Remove"
-                      )}
-                    </button>
+                    {!readOnly && (
+                      <button
+                        className={cx(linkBtn, "ml-auto text-[#b5524f]")}
+                        aria-label={`Remove game ${n}`}
+                        disabled={isRemoving}
+                        onClick={() => setConfirmTarget({ gameId: g.id, n })}
+                      >
+                        {isRemoving ? (
+                          <>
+                            <span className={cx(spinner, "mr-1")} />
+                            Removing…
+                          </>
+                        ) : (
+                          "Remove"
+                        )}
+                      </button>
+                    )}
                   </div>
 
                   {g.teams ? (

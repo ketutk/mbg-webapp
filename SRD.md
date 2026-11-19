@@ -181,8 +181,8 @@ Treasury is **club-wide** (not per session). Admin and Superadmin only.
 | ID | Requirement |
 |----|-------------|
 | FR-VIS-1 | Logged-out `/` shows a hero ("Play fair. Play more."), a card grid of **open** sessions (3 columns → 2 → 1; page size 9; a name search appears when there are more than 3 open sessions or a search is active), and an "Admin login" action in the empty state. |
-| FR-VIS-2 | Opening a session shows three read-only blocks: **Courts** (each court empty or Team A vs Team B), **Queue** (ordered, "Queued" pills), **Games played** (avatar, name, count, `(+N queued)`; sorted by fewest games first, then name; players who are behind the leader are highlighted). |
-| FR-VIS-3 | Data comes only from `GET /api/sessions/:id/summary` (names, ids, counts, courts, queue). Never `locked`, finished-match history or treasury. |
+| FR-VIS-2 | Opening a session shows three read-only blocks: **Courts** (each court empty or Team A vs Team B), **Queue** (ordered, "Queued" pills), **Games played** (avatar, name, count, `(+N queued)`; sorted by fewest games first, then name; players who are behind the leader are highlighted), plus a **History · N** button opening a read-only `HistoryDialog`. |
+| FR-VIS-3 | Data comes only from `GET /api/sessions/:id/summary` (names, ids, counts, wins, losses, courts, queue, games without lock flags). Never `locked`, player `paid` status, or treasury. |
 | FR-VIS-4 | If the session was closed or removed, a "Session unavailable" card offers "← Back to all sessions". |
 
 ### 3.9 Rendering & SEO (`FR-RND`)
@@ -272,7 +272,7 @@ mbg-webapp-main/
 │  │  ├─ CourtBoard · CourtCard (read-only variant for visitors) · QueuePanel · NextMatch · PlayerGrid
 │  │  ├─ AssignDialog · FinishMatchDialog · HistoryDialog · RosterDialog · SessionDialog · SessionSettingsDialog
 │  │  └─ admin/                      Organiser-only pieces
-│  │     ├─ AdminSessionContainer · SessionView · SessionHeaderBar
+│  │     ├─ AdminSessionContainer · SessionView · SessionHeaderBar · PaymentChecklistCard
 │  │     ├─ SessionsDirectory · SessionsHero · SessionsTable · SessionsFilterToolbar
 │  │     └─ useSessionFilters.ts · session-date-range.ts
 │  ├─ treasury/                      TreasuryApp (route root) · TreasuryContent · TreasuryHero · TreasuryKpiCards ·
@@ -391,6 +391,7 @@ model Player {
   name      String
   nameKey   String                                    // lowercased name → uniqueness
   position  Int                                       // roster order
+  paid      Boolean      @default(false)              // organiser-only payment status
   session   Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   games     GamePlayer[]
   @@unique([sessionId, nameKey])
@@ -441,7 +442,7 @@ model TreasuryEntry {
 }
 ```
 
-Migrations: `20261108151400_init` (full schema), `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`), and `20261117081500_add_game_scores` (adds `scoreA`, `scoreB` on `Game`).
+Migrations: `20261108151400_init` (full schema), `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`), `20261117081500_add_game_scores` (adds `scoreA`, `scoreB` on `Game`), and `20261119084500_add_player_paid` (adds `paid` on `Player`).
 
 ### Derived rules the schema relies on
 
@@ -460,11 +461,11 @@ Migrations: `20261108151400_init` (full schema), `20261110022640_init2` (adds `S
 |------|-------|
 | `Role`, `SessionStatus`, `GameStatus`, `EntryType` | String unions matching the Prisma enums |
 | `AuthUser { id, username, role }` · `AdminUser { …, createdAt, deletedAt }` | Dates are ISO strings |
-| `Player { id, name }` · `Team = [string, string]` | Team = two player ids |
-| `Game` | `playerIds`, optional `teams: [Team, Team]`, `createdAt/startedAt/finishedAt` (epoch ms), `status`, `courtNumber?` (ON_COURT only), `queueOrder?` (QUEUED only), `locked` |
+| `Player { id, name, paid }` · `Team = [string, string]` | Team = two player ids; `paid` is organiser-only |
+| `Game` | `playerIds`, optional `teams: [Team, Team]`, `createdAt/startedAt/finishedAt` (epoch ms), `status`, `courtNumber?` (ON_COURT only), `queueOrder?` (QUEUED only), `scoreA?`, `scoreB?`, `locked` |
 | `Session` | Organiser payload: `id, name, date (yyyy-mm-dd), courtCount, status, players, games` (games ordered by `seq`) |
 | `SessionListItem` · `SessionsFilterParams` · `SessionsPage` | List row (+ `playerCount`, `gameCount`), filters, and `{ sessions, totalSessions, openCount, closedCount, page, pageSize, totalPages }` |
-| `PublicGame` · `SessionSummary` | Visitor payload: courts + queue + `players[{ id, name, count, queued }]` (`count` includes queued) |
+| `PublicGame` · `SessionSummary` | Visitor payload: courts + queue + games (without `locked`) + `players[{ id, name, count, queued, wins, losses }]` |
 | `TreasuryEntry` · `TreasuryMonthlyBucket` · `TreasuryFilterParams` · `TreasurySummary` | Summary holds all-time and period totals, `monthly[]`, the page of `entries`, and pagination |
 
 ### 8.2 Zod schemas (`lib/schemas.ts`)
@@ -532,6 +533,7 @@ Base `/api`. JSON in and out. Every response carries `Cache-Control: no-store`. 
 | `DELETE /sessions/:id` | S | cascade → `{ ok }` |
 | `GET /sessions/:id/summary` | P | → `{ summary }`; closed + visitor → 403 `SESSION_CLOSED` |
 | `PUT /sessions/:id/players` | A | `rosterInput` (diff by name, one transaction) → `{ session }` |
+| `PUT /sessions/:id/players/:playerId` | A | `playerPaidInput` (`{ paid }`) → `{ player }` |
 | `POST /sessions/:id/games` | A | `assignInput` → 201 `{ game }` (locked on creation) |
 | `DELETE /sessions/:id/games` | A | clear all matches → `{ ok }` |
 | `PUT /sessions/:id/queue` | A | `queueOrderInput` → `{ session }` |
@@ -644,7 +646,7 @@ Zustand is for UI state only. Server data never goes into Zustand.
 ### 11.3 `/sessions` and `/sessions/[id]` for visitors
 
 1. `/sessions`: Hero ("Live match day" / "Play fair. Play more.") with open-session count pill, optional name search (when > 3 open sessions or active search), and open session card grid (pager when > 9).
-2. Clicking a card navigates to `/sessions/[id]` rendering `VisitorView`: header (date, Open/Closed pill, name, "Leaderboard", "← All sessions"), **Courts**, **Queue**, **Games played** (§3.8).
+2. Clicking a card navigates to `/sessions/[id]` rendering `VisitorView`: header (date, Open/Closed pill, name, "Leaderboard", "History · n", "← All sessions"), **Courts**, **Queue**, **Games played** (§3.8).
 
 ### 11.4 `/sessions` and `/sessions/[id]` for organisers
 
@@ -654,6 +656,7 @@ Zustand is for UI state only. Server data never goes into Zustand.
    2. **Courts** (`CourtBoard`): `CourtCard` grid (2 cols, 1 on mobile). Occupied: Court N, Team A vs Team B, "Playing since hh:mm", *Edit players*, *✓ Finish match*. Empty (dashed): *＋ Assign players* and *▶ Play next in queue* when the queue has items.
    3. **Queue** (`QueuePanel`): ordered list with "Queued" pill, ▲ ▼, Edit, ✕ (confirm), *＋ Add to queue*.
    4. Two-column area (1.7fr / 1fr; stacked on mobile): **Games played** (`PlayerGrid`, left) and **Next match** (`NextMatch`, right, sticky on desktop; first on mobile) with *Shuffle*, *Assign to court*, *Add to queue*, and the waiting list.
+   5. **Payment checklist** (`PaymentChecklistCard`): organiser-only card below the player grid with Paid/Unpaid filter pills (`All`, `Unpaid`, `Paid`), `{paid}/{total} paid` counter, and per-player payment checkboxes (`PUT /api/sessions/:id/players/:playerId`).
 
 ### 11.5 `/treasury`
 
@@ -676,7 +679,7 @@ All use `components/ui/Dialog.tsx` (`Dialog`, `ConfirmDialog`; `Modal` is an unu
 | `RosterDialog` ("Edit players") | `SessionHeaderBar` | organisers |
 | `AssignDialog` (court picker or queue, Team A/B selects, "use recommendation", busy hints; also edits a match) | CourtBoard, QueuePanel, NextMatch | organisers |
 | `FinishMatchDialog` (records Team A / Team B final scores on finish, no ties) | CourtCard (`✓ Finish match`) via `SessionView` | organisers |
-| `HistoryDialog` ("Match history", newest first; status pill, court, score pill, lock info, remove) | `SessionHeaderBar` | organisers |
+| `HistoryDialog` ("Match history", newest first; status pill, court, score pill, lock info + remove for organisers; read-only for visitors) | `SessionHeaderBar` / `VisitorView` | everyone |
 | `TreasuryEntryDialog` (type, amount, purpose, date; add or edit) | Treasury hero / table | add: organisers; edit: superadmin |
 | `AdminDialog` (create admin / reset password) | `/admins` | superadmin |
 | `ConfirmDialog` (remove queued match, delete session, remove game, clear all, delete treasury entry, delete admin) | various | as the action |

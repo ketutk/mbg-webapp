@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { fmtDate } from "@/lib/format";
 import { selectSession, useSessionSummary } from "@/lib/store";
@@ -19,6 +21,10 @@ import { VisitorPlayersSection } from "./VisitorPlayersSection";
 import { VisitorQueueSection } from "./VisitorQueueSection";
 import { VisitorViewSkeleton } from "./VisitorViewSkeleton";
 
+const HistoryDialog = dynamic(() =>
+  import("./HistoryDialog").then((m) => m.HistoryDialog),
+);
+
 export function VisitorView({
   sessionId,
   onBackToList,
@@ -26,6 +32,7 @@ export function VisitorView({
   sessionId: string;
   onBackToList: () => void;
 }) {
+  const [showHistory, setShowHistory] = useState(false);
   const { data: summary, error, loading } = useSessionSummary(sessionId);
 
   if (loading) {
@@ -98,6 +105,13 @@ export function VisitorView({
           <button
             type="button"
             className={btn("light")}
+            onClick={() => setShowHistory(true)}
+          >
+            History · {summary.games.length}
+          </button>
+          <button
+            type="button"
+            className={btn("light")}
             onClick={() => {
               selectSession(null);
               onBackToList();
@@ -137,6 +151,14 @@ export function VisitorView({
       <VisitorQueueSection queue={summary.queue} nameOf={nameOf} />
 
       <VisitorPlayersSection players={summary.players} />
+
+      {showHistory && (
+        <HistoryDialog
+          session={summary}
+          readOnly
+          onClose={() => setShowHistory(false)}
+        />
+      )}
     </>
   );
 }

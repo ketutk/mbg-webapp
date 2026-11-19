@@ -73,13 +73,18 @@ export function toPublicGameDTO(game: GameWithPlayers): PublicGame {
   const teams = extractTeams(game.players);
   return {
     id: game.id,
-    status: game.status === "ON_COURT" ? "ON_COURT" : "QUEUED",
+    status: game.status,
     ...(game.status === "ON_COURT" && game.courtNumber != null
       ? { courtNumber: game.courtNumber }
       : {}),
     ...(game.status === "QUEUED" && game.queueOrder != null
       ? { queueOrder: game.queueOrder }
       : {}),
+    createdAt: game.createdAt.getTime(),
+    ...(game.startedAt ? { startedAt: game.startedAt.getTime() } : {}),
+    ...(game.finishedAt ? { finishedAt: game.finishedAt.getTime() } : {}),
+    ...(game.scoreA != null ? { scoreA: game.scoreA } : {}),
+    ...(game.scoreB != null ? { scoreB: game.scoreB } : {}),
     playerIds: game.players.map((gp) => gp.playerId),
     ...(teams ? { teams } : {}),
   };
@@ -102,7 +107,7 @@ export function toSessionListItemDTO(
 export function toSessionDTO(session: SessionWithRelations): Session {
   const players = [...session.players]
     .sort((a, b) => a.position - b.position)
-    .map((p) => ({ id: p.id, name: p.name }));
+    .map((p) => ({ id: p.id, name: p.name, paid: p.paid }));
   const games = [...session.games]
     .sort((a, b) => a.seq - b.seq)
     .map(toGameDTO);
@@ -171,6 +176,10 @@ export function toSessionSummaryDTO(session: SessionWithRelations): SessionSumma
     .sort((a, b) => (a.queueOrder ?? 0) - (b.queueOrder ?? 0) || a.seq - b.seq)
     .map(toPublicGameDTO);
 
+  const games = [...session.games]
+    .sort((a, b) => a.seq - b.seq)
+    .map(toPublicGameDTO);
+
   return {
     id: session.id,
     name: session.name,
@@ -180,6 +189,7 @@ export function toSessionSummaryDTO(session: SessionWithRelations): SessionSumma
     players,
     courts,
     queue,
+    games,
   };
 }
 
