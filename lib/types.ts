@@ -129,6 +129,22 @@ export interface SessionSummary {
   games: PublicGame[];
 }
 
+export interface TreasuryCategory {
+  id: string;
+  name: string;
+  /** Null means available for both INCOME and EXPENSE (e.g. "Others"). */
+  type: EntryType | null;
+  isSystem: boolean;
+}
+
+export interface TreasuryCategoryBreakdown {
+  categoryId: string | null;
+  categoryName: string;
+  type: EntryType;
+  total: number;
+  count: number;
+}
+
 export interface TreasuryEntry {
   id: string;
   type: EntryType;
@@ -136,6 +152,8 @@ export interface TreasuryEntry {
   purpose: string;
   /** yyyy-mm-dd */
   date: string;
+  categoryId: string | null;
+  categoryName: string;
   createdByName: string;
 }
 
@@ -159,6 +177,7 @@ export interface TreasuryFilterParams {
   from?: string;
   to?: string;
   type?: "ALL" | EntryType;
+  categoryId?: string;
   q?: string;
   page?: number;
   pageSize?: number;
@@ -181,6 +200,10 @@ export interface TreasurySummary {
   periodIncomeCount: number;
   /** Filtered expense transaction count. */
   periodExpenseCount: number;
+  /** Available treasury categories. */
+  categories: TreasuryCategory[];
+  /** Filtered period totals grouped by category and entry type. */
+  categoryBreakdown: TreasuryCategoryBreakdown[];
   /** Monthly breakdown for the dashboard chart (oldest to newest, up to 12 months). */
   monthly: TreasuryMonthlyBucket[];
   /** Weekly breakdown for the dashboard chart (oldest to newest, up to 16 weeks). */

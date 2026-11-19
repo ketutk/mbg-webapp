@@ -1,10 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { addTreasuryEntry, editTreasuryEntry, todayISO } from "@/lib/store";
-import { treasuryInput, treasuryPatchInput } from "@/lib/schemas";
-import type { EntryType, TreasuryEntry } from "@/lib/types";
 import { Dialog } from "@/components/ui/Dialog";
+import { treasuryInput, treasuryPatchInput } from "@/lib/schemas";
+import {
+  addTreasuryEntry,
+  editTreasuryEntry,
+  todayISO,
+  useTreasuryCategories,
+} from "@/lib/store";
+import type { EntryType, TreasuryEntry } from "@/lib/types";
 import {
   btn,
   cx,
@@ -29,8 +34,12 @@ export function TreasuryEntryDialog({
   onClose: () => void;
   onSaved: (msg: string) => void;
 }) {
+  const { data: categories } = useTreasuryCategories();
   const [type, setType] = useState<EntryType>(
     editingEntry?.type ?? initialType,
+  );
+  const [categoryId, setCategoryId] = useState<string>(
+    editingEntry?.categoryId ?? "",
   );
   const [amount, setAmount] = useState(
     editingEntry ? String(editingEntry.amount) : "",
@@ -39,6 +48,30 @@ export function TreasuryEntryDialog({
   const [date, setDate] = useState(editingEntry?.date ?? todayISO);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const matchingCategories = categories.filter(
+    (c) => c.type === null || c.type === type,
+  );
+  const effectiveCategoryId = matchingCategories.some(
+    (c) => c.id === categoryId,
+  )
+    ? categoryId
+    : (matchingCategories.find((c) => c.name.toLowerCase() === "others")?.id ??
+      matchingCategories[0]?.id ??
+      "");
+
+  function handleTypeChange(nextType: EntryType) {
+    setType(nextType);
+    const nextMatching = categories.filter(
+      (c) => c.type === null || c.type === nextType,
+    );
+    if (!nextMatching.some((c) => c.id === categoryId)) {
+      const fallback =
+        nextMatching.find((c) => c.name.toLowerCase() === "others") ??
+        nextMatching[0];
+      setCategoryId(fallback?.id ?? "");
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,6 +86,7 @@ export function TreasuryEntryDialog({
           amount: numAmount,
           purpose: purpose.trim(),
           date,
+          categoryId: effectiveCategoryId || null,
         });
         if (!parsed.success) {
           setError(parsed.error.issues[0]?.message ?? "Check entry fields");
@@ -67,6 +101,7 @@ export function TreasuryEntryDialog({
           amount: numAmount,
           purpose: purpose.trim(),
           date,
+          categoryId: effectiveCategoryId || null,
         });
         if (!parsed.success) {
           setError(parsed.error.issues[0]?.message ?? "Check entry fields");
@@ -103,14 +138,14 @@ export function TreasuryEntryDialog({
           <button
             type="button"
             className={btn(type === "EXPENSE" ? "primary" : "light", "sm")}
-            onClick={() => setType("EXPENSE")}
+            onClick={() => handleTypeChange("EXPENSE")}
           >
             Expense (Spent)
           </button>
           <button
             type="button"
             className={btn(type === "INCOME" ? "primary" : "light", "sm")}
-            onClick={() => setType("INCOME")}
+            onClick={() => handleTypeChange("INCOME")}
           >
             Income
           </button>
@@ -145,6 +180,22 @@ export function TreasuryEntryDialog({
             />
           </label>
         </div>
+
+        <label className={field}>
+          <span className={fieldLabel}>Category</span>
+          <select
+            id="treasury-category"
+            className={fieldInput}
+            value={effectiveCategoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+          >
+            {matchingCategories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <label className={field}>
           <span className={fieldLabel}>Purpose / information</span>
@@ -195,4 +246,3 @@ export function TreasuryEntryDialog({
     </Dialog>
   );
 }
-

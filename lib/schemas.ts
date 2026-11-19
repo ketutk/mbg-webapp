@@ -132,6 +132,21 @@ export const finishMatchInput = z
     path: ["scoreB"],
   });
 
+export const treasuryCategoryInput = z.object({
+  name: z.string().trim().min(1, "Category name is required").max(40),
+  type: z.enum(["INCOME", "EXPENSE"]).nullable().optional().default(null),
+});
+
+export const treasuryCategoryPatchInput = z
+  .object({
+    name: z.string().trim().min(1, "Category name is required").max(40).optional(),
+    type: z.enum(["INCOME", "EXPENSE"]).nullable().optional(),
+  })
+  .refine(
+    (v) => v.name !== undefined || v.type !== undefined,
+    "Provide at least one field to update",
+  );
+
 export const treasuryInput = z.object({
   type: z.enum(["INCOME", "EXPENSE"]).default("EXPENSE"),
   amount: z
@@ -141,6 +156,7 @@ export const treasuryInput = z.object({
     .max(1_000_000_000, "Amount exceeds maximum"),
   purpose: z.string().trim().min(1, "Purpose is required").max(200),
   date: isoDate,
+  categoryId: z.string().min(1).nullable().optional(),
 });
 
 export const treasuryPatchInput = z
@@ -149,13 +165,15 @@ export const treasuryPatchInput = z
     amount: z.number().int().min(1).max(1_000_000_000).optional(),
     purpose: z.string().trim().min(1).max(200).optional(),
     date: isoDate.optional(),
+    categoryId: z.string().min(1).nullable().optional(),
   })
   .refine(
     (v) =>
       v.type !== undefined ||
       v.amount !== undefined ||
       v.purpose !== undefined ||
-      v.date !== undefined,
+      v.date !== undefined ||
+      v.categoryId !== undefined,
     "Provide at least one field to update",
   );
 
@@ -200,5 +218,9 @@ export type QueueOrderInput = z.infer<typeof queueOrderInput>;
 export type FinishMatchInput = z.infer<typeof finishMatchInput>;
 export type TreasuryInput = z.infer<typeof treasuryInput>;
 export type TreasuryPatchInput = z.infer<typeof treasuryPatchInput>;
+export type TreasuryCategoryInput = z.infer<typeof treasuryCategoryInput>;
+export type TreasuryCategoryPatchInput = z.infer<
+  typeof treasuryCategoryPatchInput
+>;
 export type ClubSettingsInput = z.infer<typeof clubSettingsInput>;
 

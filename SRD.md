@@ -169,9 +169,9 @@ Treasury is **club-wide** (not per session). Admin and Superadmin only.
 | ID | Requirement |
 |----|-------------|
 | FR-TRS-1 | Dashboard shows **all-time cash left** (Σ income − Σ expense of non-deleted entries) with an in/out ratio bar, **period income**, **period spent** (each with a transaction count) and **period net flow** for the current filter. |
-| FR-TRS-2 | An interactive **cashflow chart** supporting **monthly** (up to 12 months: `6m` / `12m` / `ytd`) and **weekly** (Monday–Sunday, up to 16 weeks: `8w` / `12w` / `16w`) grouping, with a period selector showing net delta, compact IDR axis labels (`Rb` / `Jt` / `M`), hover vertical crosshair + dark tooltip with full IDR values, a `Line chart` / cards view switcher, and click-to-filter on any month or week (clicking again clears the filter). |
-| FR-TRS-3 | Filters: period preset (*All time, This month, Last month, Last 30d, Last 90d, This year, By month, Custom range*), type (*All / Income / Expense*), text search on purpose. Entries are **server-paginated** (page sizes 10 / 25 / 50, default 10), newest date first, ties by newest created. |
-| FR-TRS-4 | Add entry (Admin + Superadmin): type (`EXPENSE` default / `INCOME`), amount (whole IDR, 1 – 1,000,000,000), purpose (1–200), date (`yyyy-mm-dd`, defaults to today). Buttons: **＋ Add spent**, **＋ Add income**. |
+| FR-TRS-2 | An interactive **net cashflow chart** (`Income − Spent` single spline line) supporting **monthly** (up to 12 months: `6m` / `12m` / `ytd`) and **weekly** (Monday–Sunday, up to 16 weeks: `8w` / `12w` / `16w`) grouping, with a period selector showing net delta, compact IDR axis labels (`Rb` / `Jt` / `M`), zero baseline, hover vertical crosshair + dark tooltip with Net/Income/Spent breakdown, a `Line chart` / cards view switcher, and click-to-filter on any month or week (clicking again clears the filter). |
+| FR-TRS-3 | Filters: period preset (*All time, This month, Last month, Last 30d, Last 90d, This year, By month, Custom range*), type (*All / Income / Expense*), category, text search on purpose. Entries are **server-paginated** (page sizes 10 / 25 / 50, default 10), newest date first, ties by newest created. |
+| FR-TRS-4 | Add entry (Admin + Superadmin): type (`EXPENSE` default / `INCOME`), amount (whole IDR, 1 – 1,000,000,000), category (defaults to `Others`), purpose (1–200), date (`yyyy-mm-dd`, defaults to today). Buttons: **＋ Add spent**, **＋ Add income**. Both Admin and Superadmin can also create, rename, and delete custom categories (`Booking`, `Shuttlecock`, `Water`, `Player Payment`, `Others` are protected defaults). |
 | FR-TRS-5 | **Superadmin only:** edit any field; **soft-delete** (`deletedAt`, `deletedById`). Deleted entries are excluded from every total and list. Edits record `updatedById`. |
 | FR-TRS-6 | Amounts display with `Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })` (`formatIDR`). |
 | FR-TRS-7 | All sums are computed on the server (aggregate queries); the client never computes the balance. |
@@ -545,7 +545,11 @@ Base `/api`. JSON in and out. Every response carries `Cache-Control: no-store`. 
 | `PUT /games/:id/lock` | A | `lockInput` → `{ game }` |
 | `GET /club-settings` | P | → `{ settings }` (Home page schedule, venue, skill level, WhatsApp & AYO URLs) |
 | `PATCH /club-settings` | A | `clubSettingsInput` → `{ settings }` (organisers edit club info) |
-| `GET /treasury` | A | query `from,to,type,q,page,pageSize` → `TreasurySummary` |
+| `GET /treasury` | A | query `from,to,type,categoryId,q,page,pageSize` → `TreasurySummary` |
+| `GET /treasury/categories` | A | → `{ categories }` (system defaults + custom categories) |
+| `POST /treasury/categories` | A | `treasuryCategoryInput` → 201 `{ category }` |
+| `PATCH /treasury/categories/:id` | A | `treasuryCategoryPatchInput` → `{ category }` |
+| `DELETE /treasury/categories/:id` | A | deletes custom category (403 on system defaults), reassigns entries to `Others` → `{ ok }` |
 | `POST /treasury/entries` | A | `treasuryInput` → 201 `{ entry }` |
 | `PATCH /treasury/entries/:id` | S | `treasuryPatchInput` → `{ entry }` |
 | `DELETE /treasury/entries/:id` | S | soft delete → `{ ok }` |
@@ -662,7 +666,7 @@ Zustand is for UI state only. Server data never goes into Zustand.
 
 ### 11.5 `/treasury`
 
-`TreasuryHero` (eyebrow "Club treasury", all-time cash left, **＋ Add income**, **＋ Add spent**) → `TreasuryKpiCards` (all-time cash left with In/Out ratio bar; period income; period spent; period net) → `MonthlyCashflowCard` (`TreasurySplineChart` interactive spline chart grouped by month `6m`/`12m`/`ytd` or week `8w`/`12w`/`16w`, compact IDR Y-axis, hover crosshair tooltip, line/cards view switcher, and click-to-filter) → `TransactionsCard` (filter toolbar, `TransactionsTable` with date, purpose, type, amount, added by, and superadmin Edit/Delete; pagination 10 / 25 / 50). Soft delete asks for confirmation.
+`TreasuryHero` (eyebrow "Club treasury", all-time cash left, **＋ Add income**, **＋ Add spent**) → `TreasuryKpiCards` (all-time cash left with In/Out ratio bar; period income; period spent; period net) → `MonthlyCashflowCard` (`TreasurySplineChart` single-line `Income − Spent` net cashflow spline chart grouped by month `6m`/`12m`/`ytd` or week `8w`/`12w`/`16w`) → `CategoryBreakdownCard` (spent & income totals per category, click to filter, **＋ Manage categories** for all organisers) → `TransactionsCard` (filter toolbar with category dropdown, `TransactionsTable` with date, purpose, category, type, amount, added by, and superadmin Edit/Delete; pagination 10 / 25 / 50). Soft delete asks for confirmation.
 
 ### 11.6 `/admins`
 

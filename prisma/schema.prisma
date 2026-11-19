@@ -119,20 +119,36 @@ model GamePlayer {
   @@id([gameId, playerId])
 }
 
+model TreasuryCategory {
+  id          String          @id @default(cuid())
+  name        String
+  nameKey     String          @unique
+  type        EntryType?
+  isSystem    Boolean         @default(false)
+  createdById String?
+  createdAt   DateTime        @default(now())
+  entries     TreasuryEntry[]
+
+  @@index([type])
+}
+
 model TreasuryEntry {
-  id          String    @id @default(cuid())
-  type        EntryType @default(EXPENSE)
+  id          String            @id @default(cuid())
+  type        EntryType         @default(EXPENSE)
   amount      Int
   purpose     String
-  date        DateTime  @db.Date
+  date        DateTime          @db.Date
+  categoryId  String?
+  category    TreasuryCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   createdById String
   updatedById String?
   deletedById String?
   deletedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
   @@index([date])
+  @@index([categoryId])
 }
 
 model ClubSettings {

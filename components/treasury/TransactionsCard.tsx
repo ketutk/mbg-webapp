@@ -23,6 +23,8 @@ export function TransactionsCard({
   setCustomTo,
   typeFilter,
   setTypeFilter,
+  categoryFilter,
+  setCategoryFilter,
   searchText,
   setSearchText,
   setPage,
@@ -47,6 +49,8 @@ export function TransactionsCard({
   setCustomTo: (value: string) => void;
   typeFilter: "ALL" | EntryType;
   setTypeFilter: (type: "ALL" | EntryType) => void;
+  categoryFilter: string;
+  setCategoryFilter: (categoryId: string) => void;
   searchText: string;
   setSearchText: (value: string) => void;
   setPage: Dispatch<SetStateAction<number>>;
@@ -96,6 +100,9 @@ export function TransactionsCard({
         setCustomTo={setCustomTo}
         typeFilter={typeFilter}
         setTypeFilter={setTypeFilter}
+        categoryFilter={categoryFilter}
+        setCategoryFilter={setCategoryFilter}
+        categories={treasury.categories}
         searchText={searchText}
         setSearchText={setSearchText}
         setPage={setPage}

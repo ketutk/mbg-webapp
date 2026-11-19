@@ -38,6 +38,7 @@ export function TransactionsTable({
               Date
             </th>
             <th className="border-b border-[#f0f5f9] py-2.5 px-3">Purpose</th>
+            <th className="border-b border-[#f0f5f9] py-2.5 px-3">Category</th>
             <th className="border-b border-[#f0f5f9] py-2.5 px-3">Type</th>
             <th className="border-b border-[#f0f5f9] py-2.5 px-3 text-right">
               Amount
@@ -66,6 +67,9 @@ export function TransactionsTable({
                 </td>
                 <td className="border-b border-[#f0f5f9] py-3 px-3 font-bold text-[#204a74]">
                   {entry.purpose}
+                </td>
+                <td className="border-b border-[#f0f5f9] py-3 px-3 whitespace-nowrap">
+                  <span className={pill("default")}>{entry.categoryName}</span>
                 </td>
                 <td className="border-b border-[#f0f5f9] py-3 px-3">
                   <span

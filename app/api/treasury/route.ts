@@ -12,6 +12,7 @@ export const GET = route({ roles: ["ADMIN", "SUPERADMIN"] }, async ({ req }) => 
       ? rawType
       : undefined;
   const q = searchParams.get("q") ?? undefined;
+  const categoryId = searchParams.get("categoryId") ?? undefined;
   const page = Number(searchParams.get("page")) || 1;
   const pageSize = Number(searchParams.get("pageSize")) || 10;
 
@@ -19,6 +20,7 @@ export const GET = route({ roles: ["ADMIN", "SUPERADMIN"] }, async ({ req }) => 
     from,
     to,
     type,
+    categoryId,
     q,
     page,
     pageSize,

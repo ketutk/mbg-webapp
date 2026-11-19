@@ -4,9 +4,12 @@ import { addDaysISO, getWeekMondayISO } from "@/lib/date";
 import { prisma } from "./db";
 import { fromDateStr, toDateStr, toTreasuryEntryDTO } from "./dto";
 import { HttpError } from "./http";
+import { listTreasuryCategories } from "./treasury-categories";
 import type { TreasuryInput, TreasuryPatchInput } from "@/lib/schemas";
 import type {
   AuthUser,
+  EntryType,
+  TreasuryCategoryBreakdown,
   TreasuryEntry,
   TreasuryFilterParams,
   TreasuryMonthlyBucket,
@@ -24,6 +27,40 @@ async function resolveUsernames(ids: string[]): Promise<Map<string, string>> {
     select: { id: true, username: true },
   });
   return new Map(users.map((u) => [u.id, u.username]));
+}
+
+async function resolveCategoryId(
+  entryType: EntryType,
+  categoryId?: string | null,
+): Promise<string | null> {
+  if (categoryId) {
+    const cat = await prisma.treasuryCategory.findUnique({
+      where: { id: categoryId },
+    });
+    if (!cat) {
+      throw new HttpError(
+        400,
+        "VALIDATION",
+        "Selected category does not exist.",
+        { categoryId: "Category not found" },
+      );
+    }
+    if (cat.type !== null && cat.type !== entryType) {
+      throw new HttpError(
+        400,
+        "VALIDATION",
+        `Category “${cat.name}” only applies to ${cat.type === "INCOME" ? "income" : "spent"} entries.`,
+        { categoryId: "Category does not match entry type" },
+      );
+    }
+    return cat.id;
+  }
+
+  const others = await prisma.treasuryCategory.findUnique({
+    where: { nameKey: "others" },
+    select: { id: true },
+  });
+  return others?.id ?? null;
 }
 
 function buildRecentMonths(anchorYm: string, count = 12): string[] {
@@ -67,6 +104,9 @@ export async function getTreasurySummary(
   const toStr = params.to && DATE_RE.test(params.to) ? params.to : undefined;
   const typeFilter =
     params.type === "INCOME" || params.type === "EXPENSE" ? params.type : undefined;
+  const categoryFilter = params.categoryId?.trim()
+    ? params.categoryId.trim()
+    : undefined;
   const qFilter = params.q?.trim() ? params.q.trim() : undefined;
 
   const filteredWhere: Prisma.TreasuryEntryWhereInput = {
@@ -80,6 +120,7 @@ export async function getTreasurySummary(
         }
       : {}),
     ...(typeFilter ? { type: typeFilter } : {}),
+    ...(categoryFilter ? { categoryId: categoryFilter } : {}),
     ...(qFilter
       ? {
           purpose: {
@@ -90,26 +131,39 @@ export async function getTreasurySummary(
       : {}),
   };
 
-  const [allTimeSums, periodSums, totalEntries, latestActiveEntry] =
-    await Promise.all([
-      prisma.treasuryEntry.groupBy({
-        by: ["type"],
-        where: { deletedAt: null },
-        _sum: { amount: true },
-      }),
-      prisma.treasuryEntry.groupBy({
-        by: ["type"],
-        where: filteredWhere,
-        _sum: { amount: true },
-        _count: { _all: true },
-      }),
-      prisma.treasuryEntry.count({ where: filteredWhere }),
-      prisma.treasuryEntry.findFirst({
-        where: { deletedAt: null },
-        select: { date: true },
-        orderBy: { date: "desc" },
-      }),
-    ]);
+  const [
+    allTimeSums,
+    periodSums,
+    categorySums,
+    totalEntries,
+    latestActiveEntry,
+    categories,
+  ] = await Promise.all([
+    prisma.treasuryEntry.groupBy({
+      by: ["type"],
+      where: { deletedAt: null },
+      _sum: { amount: true },
+    }),
+    prisma.treasuryEntry.groupBy({
+      by: ["type"],
+      where: filteredWhere,
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.treasuryEntry.groupBy({
+      by: ["categoryId", "type"],
+      where: filteredWhere,
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.treasuryEntry.count({ where: filteredWhere }),
+    prisma.treasuryEntry.findFirst({
+      where: { deletedAt: null },
+      select: { date: true },
+      orderBy: { date: "desc" },
+    }),
+    listTreasuryCategories(),
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
   const page = Math.min(requestedPage, totalPages);
@@ -132,6 +186,7 @@ export async function getTreasurySummary(
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
+      include: { category: { select: { name: true } } },
     }),
     prisma.treasuryEntry.groupBy({
       by: ["type", "date"],
@@ -164,6 +219,18 @@ export async function getTreasurySummary(
       periodExpenseCount = row._count._all;
     }
   }
+
+  const catNameMap = new Map(categories.map((c) => [c.id, c.name]));
+  const categoryBreakdown: TreasuryCategoryBreakdown[] = categorySums
+    .map((row) => ({
+      categoryId: row.categoryId,
+      categoryName:
+        (row.categoryId ? catNameMap.get(row.categoryId) : undefined) ?? "Others",
+      type: row.type,
+      total: row._sum.amount ?? 0,
+      count: row._count._all,
+    }))
+    .sort((a, b) => b.total - a.total || a.categoryName.localeCompare(b.categoryName));
 
   const bucketMap = new Map<string, TreasuryMonthlyBucket>(
     monthKeys.map((m) => [m, { month: m, income: 0, expense: 0 }]),
@@ -200,6 +267,8 @@ export async function getTreasurySummary(
     periodNet: periodIncome - periodExpense,
     periodIncomeCount,
     periodExpenseCount,
+    categories,
+    categoryBreakdown,
     monthly: Array.from(bucketMap.values()),
     weekly: Array.from(weekBucketMap.values()),
     entries: entries.map((e) => toTreasuryEntryDTO(e, userMap)),
@@ -214,14 +283,17 @@ export async function createTreasuryEntry(
   input: TreasuryInput,
   user: AuthUser,
 ): Promise<TreasuryEntry> {
+  const categoryId = await resolveCategoryId(input.type, input.categoryId);
   const created = await prisma.treasuryEntry.create({
     data: {
       type: input.type,
       amount: input.amount,
       purpose: input.purpose,
       date: fromDateStr(input.date),
+      categoryId,
       createdById: user.id,
     },
+    include: { category: { select: { name: true } } },
   });
   return toTreasuryEntryDTO(created, new Map([[user.id, user.username]]));
 }
@@ -231,9 +303,24 @@ export async function updateTreasuryEntry(
   input: TreasuryPatchInput,
   user: AuthUser,
 ): Promise<TreasuryEntry> {
-  const existing = await prisma.treasuryEntry.findUnique({ where: { id } });
+  const existing = await prisma.treasuryEntry.findUnique({
+    where: { id },
+    include: { category: true },
+  });
   if (!existing || existing.deletedAt !== null) {
     throw new HttpError(404, "NOT_FOUND", "Treasury entry not found.");
+  }
+
+  const nextType = input.type ?? existing.type;
+  let nextCategoryId: string | null | undefined = undefined;
+  if (input.categoryId !== undefined) {
+    nextCategoryId = await resolveCategoryId(nextType, input.categoryId);
+  } else if (
+    input.type !== undefined &&
+    existing.category?.type !== null &&
+    existing.category?.type !== nextType
+  ) {
+    nextCategoryId = await resolveCategoryId(nextType, null);
   }
 
   const updated = await prisma.treasuryEntry.update({
@@ -243,8 +330,10 @@ export async function updateTreasuryEntry(
       ...(input.amount !== undefined ? { amount: input.amount } : {}),
       ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
       ...(input.date !== undefined ? { date: fromDateStr(input.date) } : {}),
+      ...(nextCategoryId !== undefined ? { categoryId: nextCategoryId } : {}),
       updatedById: user.id,
     },
+    include: { category: { select: { name: true } } },
   });
 
   const userMap = await resolveUsernames([updated.createdById]);
@@ -268,4 +357,3 @@ export async function softDeleteTreasuryEntry(
     },
   });
 }
-

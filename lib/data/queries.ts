@@ -6,6 +6,7 @@ import type {
   ClubSettings,
   SessionSummary,
   SessionsFilterParams,
+  TreasuryCategory,
   TreasuryFilterParams,
   TreasurySummary,
 } from "../types";
@@ -80,6 +81,7 @@ export function useTreasury(params?: TreasuryFilterParams) {
       if (params?.from) sp.set("from", params.from);
       if (params?.to) sp.set("to", params.to);
       if (params?.type && params.type !== "ALL") sp.set("type", params.type);
+      if (params?.categoryId) sp.set("categoryId", params.categoryId);
       if (params?.q?.trim()) sp.set("q", params.q.trim());
       if (params?.page && params.page > 1) sp.set("page", String(params.page));
       if (params?.pageSize) sp.set("pageSize", String(params.pageSize));
@@ -95,6 +97,24 @@ export function useTreasury(params?: TreasuryFilterParams) {
     loading: query.isPending,
     fetching: query.isFetching,
     refetch: query.refetch,
+  };
+}
+
+export function useTreasuryCategories() {
+  const query = useQuery({
+    queryKey: queryKeys.treasuryCategories,
+    queryFn: async () => {
+      const { categories } = await api<{ categories: TreasuryCategory[] }>(
+        "/treasury/categories",
+      );
+      return categories;
+    },
+  });
+
+  return {
+    data: query.data ?? [],
+    loading: query.isPending,
+    fetching: query.isFetching,
   };
 }
 

@@ -12,6 +12,7 @@ export function useTreasuryFilters() {
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<"ALL" | EntryType>("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [searchText, setSearchText] = useState<string>("");
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
@@ -26,19 +27,32 @@ export function useTreasuryFilters() {
       from: periodRange.from,
       to: periodRange.to,
       type: typeFilter,
+      categoryId: categoryFilter || undefined,
       q: searchText.trim() || undefined,
       page,
       pageSize,
     }),
-    [periodRange.from, periodRange.to, typeFilter, searchText, page, pageSize],
+    [
+      periodRange.from,
+      periodRange.to,
+      typeFilter,
+      categoryFilter,
+      searchText,
+      page,
+      pageSize,
+    ],
   );
 
   const hasActiveFilters =
-    preset !== "all" || typeFilter !== "ALL" || searchText.trim().length > 0;
+    preset !== "all" ||
+    typeFilter !== "ALL" ||
+    categoryFilter !== "" ||
+    searchText.trim().length > 0;
 
   function resetFilters() {
     setPreset("all");
     setTypeFilter("ALL");
+    setCategoryFilter("");
     setSearchText("");
     setCustomFrom("");
     setCustomTo("");
@@ -75,6 +89,11 @@ export function useTreasuryFilters() {
     setPage(1);
   }
 
+  function handleSelectCategoryFromBreakdown(categoryId: string) {
+    setCategoryFilter((prev) => (prev === categoryId ? "" : categoryId));
+    setPage(1);
+  }
+
   return {
     preset,
     setPreset,
@@ -86,6 +105,8 @@ export function useTreasuryFilters() {
     setCustomTo,
     typeFilter,
     setTypeFilter,
+    categoryFilter,
+    setCategoryFilter,
     searchText,
     setSearchText,
     page,
@@ -99,6 +120,6 @@ export function useTreasuryFilters() {
     activeWeekStart,
     handleSelectMonthFromChart,
     handleSelectWeekFromChart,
+    handleSelectCategoryFromBreakdown,
   };
 }
-

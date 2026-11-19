@@ -1,17 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { formatIDR } from "@/lib/format";
 import { removeTreasuryEntry, useTreasury } from "@/lib/store";
 import { useToast } from "@/lib/stores/ui-store";
 import type { EntryType, TreasuryEntry } from "@/lib/types";
+import { CategoryBreakdownCard } from "./CategoryBreakdownCard";
 import { MonthlyCashflowCard } from "./MonthlyCashflowCard";
 import { TransactionsCard } from "./TransactionsCard";
 import { TreasuryHero } from "./TreasuryHero";
 import { TreasuryKpiCards } from "./TreasuryKpiCards";
 import { TreasurySkeleton } from "./TreasurySkeleton";
 import { useTreasuryFilters } from "./useTreasuryFilters";
+
+const TreasuryCategoryDialog = dynamic(() =>
+  import("./TreasuryCategoryDialog").then((m) => m.TreasuryCategoryDialog),
+);
 
 export function TreasuryContent({
   isSuperadmin,
@@ -34,6 +40,8 @@ export function TreasuryContent({
     setCustomTo,
     typeFilter,
     setTypeFilter,
+    categoryFilter,
+    setCategoryFilter,
     searchText,
     setSearchText,
     setPage,
@@ -46,10 +54,12 @@ export function TreasuryContent({
     activeWeekStart,
     handleSelectMonthFromChart,
     handleSelectWeekFromChart,
+    handleSelectCategoryFromBreakdown,
   } = useTreasuryFilters();
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmEntry, setConfirmEntry] = useState<TreasuryEntry | null>(null);
+  const [managingCategories, setManagingCategories] = useState(false);
 
   const { data: treasury, loading, fetching } = useTreasury(filterParams);
 
@@ -93,6 +103,14 @@ export function TreasuryContent({
         onSelectWeek={handleSelectWeekFromChart}
       />
 
+      <CategoryBreakdownCard
+        breakdown={treasury.categoryBreakdown}
+        periodLabel={periodRange.label}
+        activeCategoryId={categoryFilter}
+        onSelectCategory={handleSelectCategoryFromBreakdown}
+        onManageCategories={() => setManagingCategories(true)}
+      />
+
       <TransactionsCard
         treasury={treasury}
         fetching={fetching}
@@ -108,6 +126,8 @@ export function TreasuryContent({
         setCustomTo={setCustomTo}
         typeFilter={typeFilter}
         setTypeFilter={setTypeFilter}
+        categoryFilter={categoryFilter}
+        setCategoryFilter={setCategoryFilter}
         searchText={searchText}
         setSearchText={setSearchText}
         setPage={setPage}
@@ -118,6 +138,13 @@ export function TreasuryContent({
         onEdit={onEdit}
         onRequestDelete={setConfirmEntry}
       />
+
+      {managingCategories && (
+        <TreasuryCategoryDialog
+          onClose={() => setManagingCategories(false)}
+          onSaved={showToast}
+        />
+      )}
 
       {confirmEntry && (
         <ConfirmDialog

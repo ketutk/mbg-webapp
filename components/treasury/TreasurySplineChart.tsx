@@ -33,16 +33,26 @@ export interface TreasuryChartPoint {
   expense: number;
 }
 
+function netValues(points: TreasuryChartPoint[]): number[] {
+  return points.map((p) => p.income - p.expense);
+}
+
 function pointRadii(points: TreasuryChartPoint[], activeKey?: string): number[] {
   return points.map((p) => (p.key === activeKey ? 6 : 3.5));
 }
 
-function pointColors(
+function pointFillColors(
   points: TreasuryChartPoint[],
-  activeColor: string,
   activeKey?: string,
 ): string[] {
-  return points.map((p) => (p.key === activeKey ? activeColor : "#ffffff"));
+  return points.map((p) => {
+    if (p.key !== activeKey) return "#ffffff";
+    return p.income - p.expense >= 0 ? "#2f8f7b" : "#d97b78";
+  });
+}
+
+function pointStrokeColors(points: TreasuryChartPoint[]): string[] {
+  return points.map((p) => (p.income - p.expense >= 0 ? "#2f8f7b" : "#d97b78"));
 }
 
 export function TreasurySplineChart({
@@ -77,10 +87,27 @@ export function TreasurySplineChart({
     if (!canvas) return;
 
     const crosshairPlugin: Plugin<"line"> = {
-      id: "treasuryCrosshair",
+      id: "treasuryNetCrosshair",
       afterDatasetsDraw(chart) {
-        const { ctx, chartArea } = chart;
+        const { ctx, chartArea, scales } = chart;
         if (!chartArea) return;
+
+        // Draw dashed zero baseline when 0 falls inside the plot area
+        const yScale = scales.y;
+        if (yScale) {
+          const zeroY = yScale.getPixelForValue(0);
+          if (zeroY >= chartArea.top && zeroY <= chartArea.bottom) {
+            ctx.save();
+            ctx.strokeStyle = "#9db9d4";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, zeroY);
+            ctx.lineTo(chartArea.right, zeroY);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
 
         const hovered = chart.getActiveElements()[0]?.element;
         if (hovered) {
@@ -126,44 +153,27 @@ export function TreasurySplineChart({
         labels: pointsRef.current.map((p) => p.axisLabel),
         datasets: [
           {
-            label: "Income",
-            data: pointsRef.current.map((p) => p.income),
-            borderColor: "#2f8f7b",
-            backgroundColor: "#2f8f7b",
+            label: "Net cashflow",
+            data: netValues(pointsRef.current),
+            borderColor: "#337fc4",
+            backgroundColor: "#337fc4",
+            fill: {
+              target: "origin",
+              above: "rgba(47, 143, 123, 0.10)",
+              below: "rgba(217, 123, 120, 0.10)",
+            },
             tension: 0.38,
             cubicInterpolationMode: "monotone",
-            borderWidth: 2.25,
+            borderWidth: 2.5,
             pointRadius: pointRadii(pointsRef.current, activeKeyRef.current),
-            pointBackgroundColor: pointColors(
+            pointBackgroundColor: pointFillColors(
               pointsRef.current,
-              "#2f8f7b",
               activeKeyRef.current,
             ),
-            pointBorderColor: "#2f8f7b",
+            pointBorderColor: pointStrokeColors(pointsRef.current),
             pointBorderWidth: 2,
             pointHoverRadius: 6.5,
-            pointHoverBackgroundColor: "#2f8f7b",
-            pointHoverBorderColor: "#ffffff",
-            pointHoverBorderWidth: 2.5,
-          },
-          {
-            label: "Spent",
-            data: pointsRef.current.map((p) => p.expense),
-            borderColor: "#d97b78",
-            backgroundColor: "#d97b78",
-            tension: 0.38,
-            cubicInterpolationMode: "monotone",
-            borderWidth: 2.25,
-            pointRadius: pointRadii(pointsRef.current, activeKeyRef.current),
-            pointBackgroundColor: pointColors(
-              pointsRef.current,
-              "#d97b78",
-              activeKeyRef.current,
-            ),
-            pointBorderColor: "#d97b78",
-            pointBorderWidth: 2,
-            pointHoverRadius: 6.5,
-            pointHoverBackgroundColor: "#d97b78",
+            pointHoverBackgroundColor: pointStrokeColors(pointsRef.current),
             pointHoverBorderColor: "#ffffff",
             pointHoverBorderWidth: 2.5,
           },
@@ -212,7 +222,7 @@ export function TreasurySplineChart({
             titleColor: "#ffffff",
             titleFont: { size: 13, weight: "bold" },
             titleMarginBottom: 8,
-            bodySpacing: 6,
+            bodySpacing: 5,
             bodyFont: { size: 11, weight: "bold" },
             usePointStyle: true,
             boxWidth: 8,
@@ -224,11 +234,21 @@ export function TreasurySplineChart({
                 return pointsRef.current[idx]?.tooltipTitle ?? "";
               },
               label(ctx) {
-                const val = Number(ctx.parsed.y ?? 0);
-                return ` ${ctx.dataset.label}: ${formatIDR(val)}`;
+                const net = Number(ctx.parsed.y ?? 0);
+                const sign = net > 0 ? "+" : net < 0 ? "−" : "";
+                return ` Net Flow: ${sign}${formatIDR(Math.abs(net))}`;
               },
               labelTextColor(ctx) {
-                return ctx.datasetIndex === 0 ? "#6ee7b7" : "#fca5a5";
+                const net = Number(ctx.parsed.y ?? 0);
+                return net >= 0 ? "#6ee7b7" : "#fca5a5";
+              },
+              afterLabel(ctx) {
+                const pt = pointsRef.current[ctx.dataIndex];
+                if (!pt) return [];
+                return [
+                  `   Income: +${formatIDR(pt.income)}`,
+                  `   Spent: −${formatIDR(pt.expense)}`,
+                ];
               },
             },
           },
@@ -252,10 +272,10 @@ export function TreasurySplineChart({
             },
           },
           y: {
-            beginAtZero: true,
             afterDataLimits(axis) {
-              if (axis.max === 0) {
-                axis.max = 100_000;
+              if (axis.min === 0 && axis.max === 0) {
+                axis.min = -50_000;
+                axis.max = 50_000;
               }
             },
             border: {
@@ -298,17 +318,14 @@ export function TreasurySplineChart({
 
     chart.data.labels = points.map((p) => p.axisLabel);
 
-    const incomeDs = chart.data.datasets[0];
-    const spentDs = chart.data.datasets[1];
-    if (incomeDs) {
-      incomeDs.data = points.map((p) => p.income);
-      incomeDs.pointRadius = pointRadii(points, activeKey);
-      incomeDs.pointBackgroundColor = pointColors(points, "#2f8f7b", activeKey);
-    }
-    if (spentDs) {
-      spentDs.data = points.map((p) => p.expense);
-      spentDs.pointRadius = pointRadii(points, activeKey);
-      spentDs.pointBackgroundColor = pointColors(points, "#d97b78", activeKey);
+    const netDs = chart.data.datasets[0];
+    if (netDs) {
+      const strokeColors = pointStrokeColors(points);
+      netDs.data = netValues(points);
+      netDs.pointRadius = pointRadii(points, activeKey);
+      netDs.pointBackgroundColor = pointFillColors(points, activeKey);
+      netDs.pointBorderColor = strokeColors;
+      netDs.pointHoverBackgroundColor = strokeColors;
     }
 
     chart.update();
@@ -319,25 +336,18 @@ export function TreasurySplineChart({
       <div className="relative h-[260px] w-full max-[600px]:h-[220px]">
         <canvas
           ref={canvasRef}
-          aria-label="Income and spent cashflow line chart"
+          aria-label="Net cashflow line chart (income minus spent)"
           role="img"
         />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-center gap-5 text-[11px] font-bold">
-        <span className="inline-flex items-center gap-1.5 text-ok">
+        <span className="inline-flex items-center gap-1.5 text-[#337fc4]">
           <span className="relative inline-flex w-5 items-center justify-center">
-            <span className="h-[2px] w-full bg-ok" />
-            <span className="absolute size-2 rounded-full border-2 border-ok bg-white" />
+            <span className="h-[2px] w-full bg-[#337fc4]" />
+            <span className="absolute size-2 rounded-full border-2 border-[#337fc4] bg-white" />
           </span>
-          Income
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-[#b5524f]">
-          <span className="relative inline-flex w-5 items-center justify-center">
-            <span className="h-[2px] w-full bg-[#d97b78]" />
-            <span className="absolute size-2 rounded-full border-2 border-[#d97b78] bg-white" />
-          </span>
-          Spent
+          Net cashflow (Income − Spent)
         </span>
       </div>
     </div>

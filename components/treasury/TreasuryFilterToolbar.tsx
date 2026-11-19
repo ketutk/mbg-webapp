@@ -2,8 +2,8 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import { shiftMonth } from "@/lib/date";
-import type { EntryType } from "@/lib/types";
-import { cx, fieldInput, linkBtn } from "@/lib/ui";
+import type { EntryType, TreasuryCategory } from "@/lib/types";
+import { cx, fieldInput, linkBtn, selectInput } from "@/lib/ui";
 import { PRESET_OPTIONS, type PeriodPreset } from "./period";
 
 export function TreasuryFilterToolbar({
@@ -17,6 +17,9 @@ export function TreasuryFilterToolbar({
   setCustomTo,
   typeFilter,
   setTypeFilter,
+  categoryFilter,
+  setCategoryFilter,
+  categories,
   searchText,
   setSearchText,
   setPage,
@@ -33,6 +36,9 @@ export function TreasuryFilterToolbar({
   setCustomTo: (value: string) => void;
   typeFilter: "ALL" | EntryType;
   setTypeFilter: (type: "ALL" | EntryType) => void;
+  categoryFilter: string;
+  setCategoryFilter: (categoryId: string) => void;
+  categories: TreasuryCategory[];
   searchText: string;
   setSearchText: (value: string) => void;
   setPage: (page: number) => void;
@@ -183,6 +189,27 @@ export function TreasuryFilterToolbar({
             </button>
           ))}
         </div>
+
+        {/* Category filter dropdown */}
+        <label className="block">
+          <span className="sr-only">Filter by category</span>
+          <select
+            id="treasury-filter-category"
+            value={categoryFilter}
+            onChange={(e) => {
+              setCategoryFilter(e.target.value);
+              setPage(1);
+            }}
+            className={cx(selectInput, "py-1.5")}
+          >
+            <option value="">All categories</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
         {/* Search input */}
         <div className="relative min-w-[200px] flex-1">

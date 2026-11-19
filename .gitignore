@@ -43,3 +43,6 @@ next-env.d.ts
 
 #filedummy
 /old
+
+# exclude plan
+/*PLAN*.md

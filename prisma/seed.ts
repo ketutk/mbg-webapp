@@ -35,6 +35,30 @@ async function main() {
   });
 
   console.log(`Seeded superadmin: ${user.username} (${user.id})`);
+
+  const defaultCategories = [
+    { id: "cat_booking", name: "Booking", nameKey: "booking", type: "EXPENSE" as const },
+    { id: "cat_shuttlecock", name: "Shuttlecock", nameKey: "shuttlecock", type: "EXPENSE" as const },
+    { id: "cat_water", name: "Water", nameKey: "water", type: "EXPENSE" as const },
+    { id: "cat_player_payment", name: "Player Payment", nameKey: "player payment", type: "INCOME" as const },
+    { id: "cat_others", name: "Others", nameKey: "others", type: null },
+  ];
+
+  for (const cat of defaultCategories) {
+    await prisma.treasuryCategory.upsert({
+      where: { nameKey: cat.nameKey },
+      update: { name: cat.name, type: cat.type, isSystem: true },
+      create: {
+        id: cat.id,
+        name: cat.name,
+        nameKey: cat.nameKey,
+        type: cat.type,
+        isSystem: true,
+      },
+    });
+  }
+
+  console.log(`Seeded ${defaultCategories.length} default treasury categories`);
 }
 
 main()

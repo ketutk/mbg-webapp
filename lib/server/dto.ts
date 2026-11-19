@@ -4,6 +4,7 @@ import type {
   GamePlayer as PrismaGamePlayer,
   Player as PrismaPlayer,
   Session as PrismaSession,
+  TreasuryCategory as PrismaTreasuryCategory,
   TreasuryEntry as PrismaTreasuryEntry,
   User as PrismaUser,
 } from "@prisma/client";
@@ -15,6 +16,7 @@ import type {
   SessionListItem,
   SessionSummary,
   Team,
+  TreasuryCategory,
   TreasuryEntry,
 } from "@/lib/types";
 
@@ -193,8 +195,19 @@ export function toSessionSummaryDTO(session: SessionWithRelations): SessionSumma
   };
 }
 
+export function toTreasuryCategoryDTO(
+  cat: PrismaTreasuryCategory,
+): TreasuryCategory {
+  return {
+    id: cat.id,
+    name: cat.name,
+    type: cat.type,
+    isSystem: cat.isSystem,
+  };
+}
+
 export function toTreasuryEntryDTO(
-  entry: PrismaTreasuryEntry,
+  entry: PrismaTreasuryEntry & { category?: { name: string } | null },
   userMap: ReadonlyMap<string, string>,
 ): TreasuryEntry {
   return {
@@ -203,6 +216,8 @@ export function toTreasuryEntryDTO(
     amount: entry.amount,
     purpose: entry.purpose,
     date: toDateStr(entry.date),
+    categoryId: entry.categoryId,
+    categoryName: entry.category?.name ?? "Others",
     createdByName: userMap.get(entry.createdById) ?? "Admin",
   };
 }

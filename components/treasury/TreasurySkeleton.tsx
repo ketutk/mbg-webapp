@@ -78,9 +78,35 @@ export function TreasurySkeleton() {
             className="rounded-2xl"
           />
           <div className="mt-3 flex items-center justify-center gap-5">
-            <SkeletonBar w="w-16" h="h-4" />
-            <SkeletonBar w="w-16" h="h-4" />
+            <SkeletonBar w="w-40" h="h-4" />
           </div>
+        </div>
+      </section>
+
+      <section
+        className={cx(card, "mb-5")}
+        aria-labelledby="category-breakdown-title"
+      >
+        <div className={cardHead}>
+          <div>
+            <h2 className={cardTitle} id="category-breakdown-title">
+              Breakdown by category
+            </h2>
+            <SkeletonBar w="w-60" h="h-3" className="mt-2" />
+          </div>
+          <SkeletonBar w="w-32" h="h-8" className="rounded-xl" />
+        </div>
+        <div className="grid grid-cols-2 border-t border-[#eef4f9] max-[860px]:grid-cols-1">
+          {[0, 1].map((col) => (
+            <div
+              key={col}
+              className="space-y-2.5 border-r border-[#eef4f9] p-5 last:border-r-0 max-[860px]:border-r-0 max-[860px]:border-b max-[860px]:p-4"
+            >
+              <SkeletonBar w="w-32" h="h-4" />
+              <SkeletonBar w="w-full" h="h-12" className="rounded-xl" />
+              <SkeletonBar w="w-full" h="h-12" className="rounded-xl" />
+            </div>
+          ))}
         </div>
       </section>
 
@@ -114,6 +140,7 @@ export function TreasurySkeleton() {
                   Date
                 </th>
                 <th className="border-b border-[#f0f5f9] py-2.5 px-3">Purpose</th>
+                <th className="border-b border-[#f0f5f9] py-2.5 px-3">Category</th>
                 <th className="border-b border-[#f0f5f9] py-2.5 px-3">Type</th>
                 <th className="border-b border-[#f0f5f9] py-2.5 px-3 text-right">
                   Amount
@@ -129,6 +156,9 @@ export function TreasurySkeleton() {
                   </td>
                   <td className="border-b border-[#f0f5f9] py-3.5 px-3">
                     <SkeletonBar w="w-48" h="h-4" />
+                  </td>
+                  <td className="border-b border-[#f0f5f9] py-3.5 px-3">
+                    <SkeletonBar w="w-20" h="h-5" className="rounded-full" />
                   </td>
                   <td className="border-b border-[#f0f5f9] py-3.5 px-3">
                     <SkeletonBar w="w-16" h="h-5" className="rounded-full" />
