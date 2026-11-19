@@ -193,3 +193,11 @@ export interface TreasurySummary {
   pageSize: number;
   totalPages: number;
 }
+
+export interface ClubSettings {
+  schedule: string;
+  venue: string;
+  skillLevel: string;
+  whatsappUrl: string | null;
+  ayoUrl: string | null;
+}

@@ -261,7 +261,7 @@ mbg-webapp-main/
 │  ├─ providers/QueryProvider.tsx    Wraps children in the shared QueryClient
 │  ├─ layout/                        AppHeader · MobileBottomNav · SyncStatus · GlobalDialogs · RouteOverlayReset · nav-items.ts
 │  ├─ ui/                            Dialog (Dialog + ConfirmDialog) · Modal (alias re-export) · Skeleton · Toast · TablePagination
-│  ├─ home/                          HomeApp (club hub linking to /sessions and /leaderboards)
+│  ├─ home/                          HomeApp · HomeCommunityPillars · HomeLiveHub · HomeHowItWorks · HomeJoinBanner · ClubSettingsDialog
 │  ├─ leaderboards/                  LeaderboardsApp (session picker) · SessionLeaderboardApp · SessionLeaderboardSkeleton
 │  ├─ auth/                          LoginDialog · PasswordDialog
 │  ├─ matches/                       Sessions feature
@@ -442,7 +442,7 @@ model TreasuryEntry {
 }
 ```
 
-Migrations: `20261108151400_init` (full schema), `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`), `20261117081500_add_game_scores` (adds `scoreA`, `scoreB` on `Game`), and `20261119084500_add_player_paid` (adds `paid` on `Player`).
+Migrations: `20261108151400_init` (full schema), `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`), `20261117081500_add_game_scores` (adds `scoreA`, `scoreB` on `Game`), `20261119084500_add_player_paid` (adds `paid` on `Player`), and `20261119094500_add_club_settings` (adds singleton `ClubSettings` table for Home page club info and WhatsApp/AYO links).
 
 ### Derived rules the schema relies on
 
@@ -543,6 +543,8 @@ Base `/api`. JSON in and out. Every response carries `Cache-Control: no-store`. 
 | `POST /games/:id/finish` | A | → `{ game }` (ON_COURT → DONE) |
 | `PUT /games/:id/players/:playerId` | A | `tickInput` → `{ game }`; 409 if locked; locks at exactly 4 |
 | `PUT /games/:id/lock` | A | `lockInput` → `{ game }` |
+| `GET /club-settings` | P | → `{ settings }` (Home page schedule, venue, skill level, WhatsApp & AYO URLs) |
+| `PATCH /club-settings` | A | `clubSettingsInput` → `{ settings }` (organisers edit club info) |
 | `GET /treasury` | A | query `from,to,type,q,page,pageSize` → `TreasurySummary` |
 | `POST /treasury/entries` | A | `treasuryInput` → 201 `{ entry }` |
 | `PATCH /treasury/entries/:id` | S | `treasuryPatchInput` → `{ entry }` |
@@ -629,7 +631,7 @@ Zustand is for UI state only. Server data never goes into Zustand.
 
 | Route | Root component | Audience | Indexing |
 |-------|----------------|----------|----------|
-| `/` | `HomeApp` | Everyone; landing hub navigating to `/sessions` and `/leaderboards` | indexed |
+| `/` | `HomeApp` | Everyone; split hero + DB-backed community pillars, live sessions & leaderboards hub, 3-step guide, WhatsApp & AYO join banner | indexed |
 | `/sessions` | `MatchApp` | Everyone; open-session cards (visitors) or sessions table (organisers) | indexed |
 | `/sessions/[id]` | `SessionDetailApp` | Everyone; `VisitorView` (visitors) or `AdminSessionContainer` (organisers) | indexed |
 | `/leaderboards` | `LeaderboardsApp` | Everyone; session picker navigating to `/leaderboards/[id]` | indexed |
@@ -672,6 +674,7 @@ All use `components/ui/Dialog.tsx` (`Dialog`, `ConfirmDialog`; `Modal` is an unu
 
 | Dialog | Opened from | Roles |
 |--------|-------------|-------|
+| `ClubSettingsDialog` (schedule, venue, skill level, WhatsApp & AYO URLs) | Home page ("Edit info" / "Add WhatsApp / AYO links") | organisers |
 | `LoginDialog` ("Admin login") | header, visitor empty state, treasury gate | everyone |
 | `PasswordDialog` ("Change password") | header / drawer | organisers |
 | `SessionDialog` ("New game session": name, date, courts, status, players text) | header "＋ New session" via `GlobalDialogs` | organisers |

@@ -159,6 +159,30 @@ export const treasuryPatchInput = z
     "Provide at least one field to update",
   );
 
+const optionalHttpUrl = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((val) => (val ?? "").trim())
+  .refine((val) => val.length <= 300, "URL is too long (max 300 characters)")
+  .refine((val) => {
+    if (!val) return true;
+    try {
+      const url = new URL(val);
+      return url.protocol === "https:" || url.protocol === "http:";
+    } catch {
+      return false;
+    }
+  }, "Enter a valid http:// or https:// URL")
+  .transform((val) => (val ? val : null));
+
+export const clubSettingsInput = z.object({
+  schedule: z.string().trim().min(1, "Schedule is required").max(80),
+  venue: z.string().trim().min(1, "Venue is required").max(100),
+  skillLevel: z.string().trim().min(1, "Skill level is required").max(120),
+  whatsappUrl: optionalHttpUrl,
+  ayoUrl: optionalHttpUrl,
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordInput>;
 export type AdminCreateInput = z.infer<typeof adminCreateInput>;
@@ -176,4 +200,5 @@ export type QueueOrderInput = z.infer<typeof queueOrderInput>;
 export type FinishMatchInput = z.infer<typeof finishMatchInput>;
 export type TreasuryInput = z.infer<typeof treasuryInput>;
 export type TreasuryPatchInput = z.infer<typeof treasuryPatchInput>;
+export type ClubSettingsInput = z.infer<typeof clubSettingsInput>;
 

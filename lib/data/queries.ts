@@ -3,11 +3,13 @@ import { api } from "../api";
 import { queryKeys } from "../query";
 import type {
   AdminUser,
+  ClubSettings,
   SessionSummary,
   SessionsFilterParams,
   TreasuryFilterParams,
   TreasurySummary,
 } from "../types";
+import { DEFAULT_CLUB_SETTINGS } from "../site";
 import { sessionDetailOptions, sessionsPageOptions } from "./query-options";
 
 export function useSessionsList(
@@ -111,6 +113,26 @@ export function useAdmins() {
     loading: query.isPending,
     fetching: query.isFetching,
     refetch: query.refetch,
+  };
+}
+
+export function useClubSettings() {
+  const query = useQuery({
+    queryKey: queryKeys.clubSettings,
+    queryFn: async () => {
+      const { settings } = await api<{ settings: ClubSettings }>(
+        "/club-settings",
+      );
+      return settings;
+    },
+    placeholderData: DEFAULT_CLUB_SETTINGS,
+    staleTime: 60_000,
+  });
+
+  return {
+    data: query.data ?? DEFAULT_CLUB_SETTINGS,
+    loading: query.isPending,
+    fetching: query.isFetching,
   };
 }
 

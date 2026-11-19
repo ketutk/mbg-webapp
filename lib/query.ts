@@ -22,6 +22,7 @@ export const queryKeys = {
   treasurySummary: (params?: TreasuryFilterParams) =>
     ["treasury", "summary", params ?? {}] as const,
   admins: ["admins", "list"] as const,
+  clubSettings: ["club-settings"] as const,
 };
 
 

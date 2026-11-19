@@ -1,4 +1,5 @@
 export * from "./data/admin-actions";
+export * from "./data/club-settings-actions";
 export {
   selectSession,
   useCurrentSessionId,

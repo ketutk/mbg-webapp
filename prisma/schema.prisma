@@ -134,3 +134,14 @@ model TreasuryEntry {
 
   @@index([date])
 }
+
+model ClubSettings {
+  id          String   @id @default("default")
+  schedule    String   @default("Sundays")
+  venue       String   @default("Local badminton court")
+  skillLevel  String   @default("All levels, beginner to intermediate doubles")
+  whatsappUrl String?
+  ayoUrl      String?
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}

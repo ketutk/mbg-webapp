@@ -1,65 +1,80 @@
 "use client";
 
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
-import { useUiStore } from "@/lib/stores/ui-store";
-import { btn, card, cx, eyebrow, h1, pill } from "@/lib/ui";
+import { useClubSettings } from "@/lib/store";
+import { useToast, useUiStore } from "@/lib/stores/ui-store";
+import { btn, cx, eyebrow, h1, pill } from "@/lib/ui";
+import { HomeCommunityPillars } from "./HomeCommunityPillars";
+import { HomeHowItWorks } from "./HomeHowItWorks";
+import { HomeJoinBanner } from "./HomeJoinBanner";
+import { HomeLiveHub } from "./HomeLiveHub";
+
+const ClubSettingsDialog = dynamic(() =>
+  import("./ClubSettingsDialog").then((m) => m.ClubSettingsDialog),
+);
 
 export default function HomeApp() {
   const { user, loading: authLoading } = useAuth();
-  const openLogin = useUiStore((s) => s.openLogin);
+  const { data: settings } = useClubSettings();
   const openNewSession = useUiStore((s) => s.openNewSession);
+  const showToast = useToast();
+  const [editingSettings, setEditingSettings] = useState(false);
+
+  const isOrganiser = Boolean(user);
   const isSuperadmin = user?.role === "SUPERADMIN";
 
   return (
     <>
-      <section className="mt-8 mb-6 flex flex-wrap items-end justify-between gap-4 max-[860px]:mt-6 max-[860px]:mb-4">
+      {/* Split Hero: Left Intro & CTAs, Right Community Pillars */}
+      <section className="mt-8 mb-6 grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] items-center gap-6 max-[960px]:grid-cols-1 max-[860px]:mt-6 max-[860px]:mb-5">
         <div>
-          <div className={eyebrow}>Minggu Badminton Guys</div>
-          <h1 className={h1}>Play fair. Play more.</h1>
-          <p className="mt-1.5 max-w-[540px] text-xs leading-relaxed text-muted">
-            Balanced court rotation, live queue order, and transparent games
-            played across every club session.
-          </p>
-        </div>
-        {!authLoading && user && (
-          <span className={pill(isSuperadmin ? "ok" : "default")}>
-            Signed in as {user.username}
-          </span>
-        )}
-      </section>
-
-      <section
-        aria-labelledby="home-sessions-title"
-        className={cx(
-          card,
-          "mb-5 bg-[linear-gradient(135deg,#ffffff,#f4faff)] p-7 max-[860px]:p-5",
-        )}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-5">
-          <div className="max-w-[600px]">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={pill("ok")}>Live club hub</span>
-              <span className={eyebrow}>Sessions directory</span>
-            </div>
-            <h2
-              id="home-sessions-title"
-              className="mt-3 font-display text-2xl font-extrabold tracking-[-0.6px] text-[#183e6b] max-[860px]:text-xl"
-            >
-              Browse all game sessions
-            </h2>
-            <p className="mt-2 text-xs leading-relaxed text-muted">
-              Head to the Sessions page to explore active and upcoming club
-              sessions, follow live court assignments, check the next-up queue,
-              or manage matches as an organiser.
-            </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={eyebrow}>Minggu Badminton Guys</span>
+            {!authLoading && user && (
+              <span className={pill(isSuperadmin ? "ok" : "default")}>
+                Signed in as {user.username}
+              </span>
+            )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className={h1}>Play fair. Play more.</h1>
+
+          <p className="mt-2 max-w-[490px] text-[13px] leading-relaxed text-muted">
+            A Sunday badminton community built on balanced court rotations, live
+            queues, and zero sitting out.
+          </p>
+
+          <div className="mt-5 flex flex-wrap items-center gap-2.5">
             <Link href="/sessions" className={btn("primary", "lg")}>
-              Go to sessions →
+              Go to Live Sessions →
             </Link>
-            {!authLoading && user && (
+
+            {settings.whatsappUrl && (
+              <a
+                href={settings.whatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-[14px] border border-[#bde8dd] bg-ok-bg px-[18px] py-3.5 text-sm font-extrabold text-ok no-underline transition-all duration-150 hover:-translate-y-px hover:bg-[#d5f1e9]"
+              >
+                <span>Join WhatsApp Group</span>
+              </a>
+            )}
+
+            {settings.ayoUrl && (
+              <a
+                href={settings.ayoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cx(btn("light", "lg"), "no-underline")}
+              >
+                Join on AYO
+              </a>
+            )}
+
+            {!authLoading && isOrganiser && (
               <button
                 type="button"
                 className={btn("light", "lg")}
@@ -68,67 +83,33 @@ export default function HomeApp() {
                 ＋ New session
               </button>
             )}
-            {!authLoading && !user && (
-              <button
-                type="button"
-                className={btn("light", "lg")}
-                onClick={openLogin}
-              >
-                Admin login
-              </button>
-            )}
           </div>
         </div>
+
+        <HomeCommunityPillars
+          settings={settings}
+          canEdit={!authLoading && isOrganiser}
+          onEdit={() => setEditingSettings(true)}
+        />
       </section>
 
-      <section
-        aria-label="Quick navigation"
-        className="grid grid-cols-2 gap-4 max-[860px]:grid-cols-1"
-      >
-        <Link
-          href="/sessions"
-          className={cx(
-            card,
-            "group flex flex-col justify-between p-5 no-underline transition-all duration-150 hover:-translate-y-0.5 hover:border-[#b9dbf7]",
-          )}
-        >
-          <div>
-            <span className={eyebrow}>Match day</span>
-            <h3 className="mt-1.5 font-display text-lg font-extrabold text-[#183e6b] group-hover:text-[#337fc4]">
-              All sessions
-            </h3>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted">
-              Open a session to view courts, queue status, player roster, and
-              match history.
-            </p>
-          </div>
-          <span className="mt-4 inline-flex items-center text-xs font-extrabold text-[#3c78aa]">
-            Open sessions →
-          </span>
-        </Link>
+      <HomeLiveHub isOrganiser={!authLoading && isOrganiser} />
 
-        <Link
-          href="/leaderboards"
-          className={cx(
-            card,
-            "group flex flex-col justify-between p-5 no-underline transition-all duration-150 hover:-translate-y-0.5 hover:border-[#b9dbf7]",
-          )}
-        >
-          <div>
-            <span className={eyebrow}>Standings</span>
-            <h3 className="mt-1.5 font-display text-lg font-extrabold text-[#183e6b] group-hover:text-[#337fc4]">
-              Leaderboards
-            </h3>
-            <p className="mt-1.5 text-xs leading-relaxed text-muted">
-              See games played rankings and participation balance across active
-              sessions.
-            </p>
-          </div>
-          <span className="mt-4 inline-flex items-center text-xs font-extrabold text-[#3c78aa]">
-            View leaderboards →
-          </span>
-        </Link>
-      </section>
+      <HomeHowItWorks />
+
+      <HomeJoinBanner
+        settings={settings}
+        canEdit={!authLoading && isOrganiser}
+        onEditSettings={() => setEditingSettings(true)}
+      />
+
+      {editingSettings && isOrganiser && (
+        <ClubSettingsDialog
+          settings={settings}
+          onClose={() => setEditingSettings(false)}
+          onSaved={showToast}
+        />
+      )}
     </>
   );
 }
