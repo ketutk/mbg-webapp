@@ -106,7 +106,17 @@ export function CourtCard({
             </span>
           )}
         </div>
-        <span className={pill("ok")}>On court</span>
+        <div className="flex items-center gap-1.5">
+          {game.tournament && (
+            <span
+              className="inline-flex items-center rounded-full border border-[#fde68a] bg-[#fffbeb] px-2 py-0.5 text-[10px] font-extrabold text-[#b45309]"
+              title={game.tournament.tournamentName}
+            >
+              🏆 {game.tournament.label}
+            </span>
+          )}
+          <span className={pill("ok")}>On court</span>
+        </div>
       </div>
 
       {teams ? (

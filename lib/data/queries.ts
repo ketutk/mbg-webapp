@@ -6,6 +6,9 @@ import type {
   ClubSettings,
   SessionSummary,
   SessionsFilterParams,
+  TournamentDetail,
+  TournamentListItem,
+  TournamentStatus,
   TreasuryCategory,
   TreasuryFilterParams,
   TreasurySummary,
@@ -153,6 +156,59 @@ export function useClubSettings() {
     data: query.data ?? DEFAULT_CLUB_SETTINGS,
     loading: query.isPending,
     fetching: query.isFetching,
+  };
+}
+
+export function useTournamentsList(
+  params?: { sessionId?: string; status?: TournamentStatus },
+  pollMs = 10_000,
+) {
+  const query = useQuery({
+    queryKey: queryKeys.tournamentsList(params),
+    queryFn: async () => {
+      const sp = new URLSearchParams();
+      if (params?.sessionId) sp.set("sessionId", params.sessionId);
+      if (params?.status) sp.set("status", params.status);
+      const qs = sp.toString();
+      const { tournaments } = await api<{ tournaments: TournamentListItem[] }>(
+        qs ? `/tournaments?${qs}` : "/tournaments",
+      );
+      return tournaments;
+    },
+    placeholderData: keepPreviousData,
+    refetchInterval: pollMs,
+    refetchIntervalInBackground: false,
+  });
+
+  return {
+    data: query.data ?? [],
+    error: query.error,
+    loading: query.isPending,
+    fetching: query.isFetching,
+    refetch: query.refetch,
+  };
+}
+
+export function useTournamentDetail(tournamentId: string | null) {
+  const query = useQuery({
+    queryKey: queryKeys.tournamentDetail(tournamentId ?? ""),
+    queryFn: async () => {
+      const { tournament } = await api<{ tournament: TournamentDetail }>(
+        `/tournaments/${tournamentId}`,
+      );
+      return tournament;
+    },
+    enabled: Boolean(tournamentId),
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
+  });
+
+  return {
+    data: query.data,
+    error: query.error,
+    loading: Boolean(tournamentId) && query.isPending,
+    fetching: query.isFetching,
+    refetch: query.refetch,
   };
 }
 

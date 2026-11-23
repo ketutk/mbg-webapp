@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "./db";
 import { toGameDTO, toSessionDTO } from "./dto";
 import { HttpError } from "./http";
+import { advanceTournamentMatch } from "./tournaments";
 import type {
   AssignInput,
   FinishMatchInput,
@@ -297,7 +298,10 @@ export async function finishOnCourtGame(
   input: FinishMatchInput,
 ): Promise<Game> {
   return prisma.$transaction(async (tx) => {
-    const game = await tx.game.findUnique({ where: { id: gameId } });
+    const game = await tx.game.findUnique({
+      where: { id: gameId },
+      include: { tournamentMatch: true },
+    });
     if (!game) {
       throw new HttpError(404, "NOT_FOUND", "Match not found.");
     }
@@ -314,8 +318,25 @@ export async function finishOnCourtGame(
         scoreB: input.scoreB,
         finishedAt: new Date(),
       },
-      include: { players: true },
+      include: {
+        players: true,
+        tournamentMatch: {
+          select: {
+            id: true,
+            label: true,
+            tournament: { select: { id: true, name: true } },
+          },
+        },
+      },
     });
+
+    if (game.tournamentMatch) {
+      await advanceTournamentMatch(
+        tx,
+        game.tournamentMatch.id,
+        input.scoreA > input.scoreB ? "A" : "B",
+      );
+    }
 
     return toGameDTO(updated);
   });
@@ -370,9 +391,27 @@ export async function reorderSessionQueue(
 
 export async function deleteGameRecord(gameId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    const game = await tx.game.findUnique({ where: { id: gameId } });
+    const game = await tx.game.findUnique({
+      where: { id: gameId },
+      include: { tournamentMatch: true },
+    });
     if (!game) {
       throw new HttpError(404, "NOT_FOUND", "Match not found.");
+    }
+    if (game.tournamentMatch) {
+      if (game.tournamentMatch.status === "COMPLETED") {
+        throw new HttpError(
+          409,
+          "INVALID_STATE",
+          "Undo the tournament match result from the bracket before deleting this game.",
+        );
+      }
+      if (game.tournamentMatch.status === "IN_PROGRESS") {
+        await tx.tournamentMatch.update({
+          where: { id: game.tournamentMatch.id },
+          data: { status: "READY", gameId: null },
+        });
+      }
     }
     await tx.game.delete({ where: { id: gameId } });
     if (game.status === "QUEUED") {

@@ -2,6 +2,43 @@ export type Role = "SUPERADMIN" | "ADMIN";
 export type SessionStatus = "OPEN" | "CLOSED";
 export type GameStatus = "QUEUED" | "ON_COURT" | "DONE";
 export type EntryType = "INCOME" | "EXPENSE";
+export type PlayerTierLevel = 1 | 2 | 3 | 4 | 5;
+
+export const PLAYER_TIER_META: Record<
+  PlayerTierLevel,
+  { label: string; short: string; description: string; traits: string }
+> = {
+  1: {
+    label: "Beginner",
+    short: "T1",
+    description: "Learning basics",
+    traits: "Struggles to sustain rallies, inconsistent serves",
+  },
+  2: {
+    label: "Novice",
+    short: "T2",
+    description: "Can rally",
+    traits: "Basic clears, drops, and serves, little tactical play",
+  },
+  3: {
+    label: "Intermediate",
+    short: "T3",
+    description: "Consistent",
+    traits: "Uses smashes, net play, and doubles rotation",
+  },
+  4: {
+    label: "Advanced",
+    short: "T4",
+    description: "Strong all-round",
+    traits: "Controls rallies, good defense, tactical partner play",
+  },
+  5: {
+    label: "Elite",
+    short: "T5",
+    description: "Competitive / ex-club level",
+    traits: "Fast, deceptive, very few unforced errors",
+  },
+};
 
 export interface AuthUser {
   id: string;
@@ -21,9 +58,17 @@ export interface Player {
   id: string;
   name: string;
   paid: boolean;
+  tier?: PlayerTierLevel | null;
 }
 
 export type Team = [string, string];
+
+export interface GameTournamentTag {
+  tournamentId: string;
+  tournamentName: string;
+  matchId: string;
+  label: string;
+}
 
 export interface Game {
   id: string;
@@ -48,6 +93,8 @@ export interface Game {
   scoreB?: number;
   /** Locked columns reject manual tick edits until unlocked. */
   locked: boolean;
+  /** Set when this game is linked to a tournament bracket match. */
+  tournament?: GameTournamentTag;
 }
 
 export interface Session {
@@ -105,6 +152,7 @@ export interface PublicGame {
   scoreB?: number;
   playerIds: string[];
   teams?: [Team, Team];
+  tournament?: GameTournamentTag;
 }
 
 export interface SessionSummary {
@@ -223,4 +271,105 @@ export interface ClubSettings {
   skillLevel: string;
   whatsappUrl: string | null;
   ayoUrl: string | null;
+}
+
+export type TournamentFormat = "SINGLE_ELIMINATION";
+export type TournamentStatus = "DRAFT" | "IN_PROGRESS" | "COMPLETED";
+export type TournamentTeamStatus = "ACTIVE" | "ELIMINATED" | "CHAMPION";
+export type TournamentMatchStatus =
+  | "PENDING"
+  | "READY"
+  | "IN_PROGRESS"
+  | "COMPLETED"
+  | "BYE";
+export type BracketSection = "MAIN" | "THIRD_PLACE";
+
+export interface TournamentTeamPlayer {
+  id: string;
+  name: string;
+  /** Admin & superadmin only; omitted for public views. */
+  tier?: PlayerTierLevel | null;
+  sessionGamesCount: number;
+}
+
+export interface TournamentTeam {
+  id: string;
+  seed: number;
+  name: string | null;
+  displayName: string;
+  status: TournamentTeamStatus;
+  eliminatedAt: string | null;
+  /** Admin & superadmin only; sum of player1.tier + player2.tier when both rated. */
+  tierSum?: number | null;
+  player1: TournamentTeamPlayer;
+  player2: TournamentTeamPlayer;
+}
+
+export interface TournamentMatch {
+  id: string;
+  section: BracketSection;
+  round: number;
+  slot: number;
+  label: string;
+  status: TournamentMatchStatus;
+  teamAId: string | null;
+  teamBId: string | null;
+  winnerTeamId: string | null;
+  isWalkover: boolean;
+  gameId: string | null;
+  courtNumber: number | null;
+  queueOrder: number | null;
+  scoreA: number | null;
+  scoreB: number | null;
+  nextMatchId: string | null;
+  nextMatchSlot: "A" | "B" | null;
+  loserNextMatchId: string | null;
+  loserNextSlot: "A" | "B" | null;
+}
+
+export interface TournamentListItem {
+  id: string;
+  name: string;
+  format: TournamentFormat;
+  status: TournamentStatus;
+  hasThirdPlace: boolean;
+  sessionId: string;
+  sessionName: string;
+  sessionDate: string;
+  sessionStatus: SessionStatus;
+  teamCount: number;
+  completedMatchCount: number;
+  totalMatchCount: number;
+  championName: string | null;
+  activePlayerIds: string[];
+}
+
+export interface TournamentSessionPlayer {
+  id: string;
+  name: string;
+  /** Admin & superadmin only; omitted for public views. */
+  tier?: PlayerTierLevel | null;
+  sessionGamesCount: number;
+}
+
+export interface TournamentDetail {
+  id: string;
+  name: string;
+  format: TournamentFormat;
+  status: TournamentStatus;
+  hasThirdPlace: boolean;
+  preferredCourts: number[];
+  session: {
+    id: string;
+    name: string;
+    date: string;
+    courtCount: number;
+    status: SessionStatus;
+    occupiedCourts: number[];
+    busyPlayerIds: string[];
+  };
+  sessionPlayers: TournamentSessionPlayer[];
+  teams: TournamentTeam[];
+  matches: TournamentMatch[];
+  activePlayerIds: string[];
 }

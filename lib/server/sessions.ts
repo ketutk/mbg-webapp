@@ -10,6 +10,7 @@ import {
 import { HttpError } from "./http";
 import type {
   PlayerPaidInput,
+  PlayerTierInput,
   RosterInput,
   SessionInput,
   SessionPatchInput,
@@ -17,6 +18,7 @@ import type {
 import type {
   AuthUser,
   Player,
+  PlayerTierLevel,
   Session,
   SessionSummary,
   SessionsFilterParams,
@@ -32,7 +34,16 @@ const sessionInclude = {
   players: { orderBy: { position: "asc" as const } },
   games: {
     orderBy: { seq: "asc" as const },
-    include: { players: true },
+    include: {
+      players: true,
+      tournamentMatch: {
+        select: {
+          id: true,
+          label: true,
+          tournament: { select: { id: true, name: true } },
+        },
+      },
+    },
   },
 };
 
@@ -171,6 +182,14 @@ export async function createSessionRecord(
   userId: string,
 ): Promise<Session> {
   const uniquePlayers = dedupeNames(input.names);
+  const nameKeys = uniquePlayers.map((p) => p.nameKey);
+  const savedTiers = nameKeys.length
+    ? await prisma.playerTier.findMany({
+        where: { nameKey: { in: nameKeys } },
+      })
+    : [];
+  const tierMap = new Map(savedTiers.map((t) => [t.nameKey, t.tier]));
+
   const created = await prisma.session.create({
     data: {
       name: input.name,
@@ -183,6 +202,7 @@ export async function createSessionRecord(
           name: p.name,
           nameKey: p.nameKey,
           position: index,
+          tier: tierMap.get(p.nameKey) ?? null,
         })),
       },
     },
@@ -294,6 +314,16 @@ export async function replaceSessionRoster(
       });
     }
 
+    const newKeys = uniquePlayers
+      .filter((p) => !prevByKey.has(p.nameKey))
+      .map((p) => p.nameKey);
+    const savedTiers = newKeys.length
+      ? await tx.playerTier.findMany({
+          where: { nameKey: { in: newKeys } },
+        })
+      : [];
+    const tierMap = new Map(savedTiers.map((t) => [t.nameKey, t.tier]));
+
     // Only touch rows that actually changed, and batch the inserts, so the
     // number of round trips stays small even for large rosters.
     const updates: ReturnType<typeof tx.player.update>[] = [];
@@ -311,7 +341,13 @@ export async function replaceSessionRoster(
           );
         }
       } else {
-        creates.push({ sessionId: id, name, nameKey, position: i });
+        creates.push({
+          sessionId: id,
+          name,
+          nameKey,
+          position: i,
+          tier: tierMap.get(nameKey) ?? null,
+        });
       }
     }
 
@@ -350,6 +386,56 @@ export async function setSessionPlayerPaid(
     id: updated.id,
     name: updated.name,
     paid: updated.paid,
+    tier: (updated.tier as PlayerTierLevel | null) ?? null,
   };
+}
+
+export async function setSessionPlayerTier(
+  sessionId: string,
+  playerId: string,
+  input: PlayerTierInput,
+  userId: string,
+): Promise<Player> {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.player.findUnique({
+      where: { id: playerId },
+    });
+    if (!existing || existing.sessionId !== sessionId) {
+      throw new HttpError(404, "NOT_FOUND", "Player not found in this session.");
+    }
+
+    const updated = await tx.player.update({
+      where: { id: playerId },
+      data: { tier: input.tier },
+    });
+
+    if (input.tier !== null) {
+      await tx.playerTier.upsert({
+        where: { nameKey: existing.nameKey },
+        create: {
+          nameKey: existing.nameKey,
+          displayName: existing.name,
+          tier: input.tier,
+          updatedById: userId,
+        },
+        update: {
+          displayName: existing.name,
+          tier: input.tier,
+          updatedById: userId,
+        },
+      });
+    } else {
+      await tx.playerTier.deleteMany({
+        where: { nameKey: existing.nameKey },
+      });
+    }
+
+    return {
+      id: updated.id,
+      name: updated.name,
+      paid: updated.paid,
+      tier: (updated.tier as PlayerTierLevel | null) ?? null,
+    };
+  });
 }
 

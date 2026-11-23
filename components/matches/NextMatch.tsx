@@ -44,14 +44,23 @@ function Slot({
 const teamLabel =
   "text-[9px] font-extrabold tracking-[1.4px] uppercase opacity-85";
 
+export interface TournamentMatchmakerFilter {
+  activeCount: number;
+  casualCount: number;
+  excluded: boolean;
+  onToggle: (excluded: boolean) => void;
+}
+
 export function NextMatch({
   session,
   rec,
+  tournamentFilter,
   onShuffle,
   onAssignRecommended,
 }: {
   session: Session;
   rec: Recommendation | null;
+  tournamentFilter?: TournamentMatchmakerFilter;
   onShuffle: () => void;
   onAssignRecommended: (mode: "court" | "queue", teams: [Team, Team]) => void;
 }) {
@@ -104,6 +113,24 @@ export function NextMatch({
               : `Gap ${gap} · ${min}–${max}`}
         </span>
       </div>
+
+      {tournamentFilter && tournamentFilter.activeCount > 0 && (
+        <label className="mx-[18px] mb-3 flex cursor-pointer items-center justify-between gap-2 rounded-xl border border-[#fde68a] bg-[#fffbeb] px-3 py-2 text-xs">
+          <div className="flex items-center gap-2 font-bold text-[#92400e]">
+            <input
+              type="checkbox"
+              checked={tournamentFilter.excluded}
+              onChange={(e) => tournamentFilter.onToggle(e.target.checked)}
+              className="size-4 accent-[#b45309]"
+            />
+            <span>Exclude active tournament players</span>
+          </div>
+          <span className="text-[11px] font-extrabold text-[#b45309]">
+            {tournamentFilter.activeCount} in bracket ·{" "}
+            {tournamentFilter.casualCount} casual
+          </span>
+        </label>
+      )}
 
       {rec ? (
         <>
@@ -178,7 +205,9 @@ export function NextMatch({
         <div className={empty}>
           {session.players.length === 0
             ? "Add players to get a match recommendation."
-            : "You need at least 4 players for a doubles recommendation."}
+            : tournamentFilter?.excluded && tournamentFilter.activeCount > 0
+              ? `Only ${tournamentFilter.casualCount} casual player${tournamentFilter.casualCount === 1 ? "" : "s"} available right now. Eliminated tournament teams will appear here automatically.`
+              : "You need at least 4 players for a doubles recommendation."}
         </div>
       )}
     </section>

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { TierBadgeSelect, TierGuideButton } from "@/components/tournaments/TierBadgeSelect";
 import { initials } from "@/lib/initials";
-import { setPlayerPaid } from "@/lib/store";
+import { setPlayerPaid, setPlayerTier } from "@/lib/store";
 import { useToast } from "@/lib/stores/ui-store";
-import type { Session } from "@/lib/types";
+import type { PlayerTierLevel, Session } from "@/lib/types";
 import {
   avatar,
   card,
@@ -23,6 +24,7 @@ export function PaymentChecklistCard({ session }: { session: Session }) {
   const showToast = useToast();
   const [filter, setFilter] = useState<PaidFilter>("ALL");
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
+  const [tierBusyId, setTierBusyId] = useState<string | null>(null);
 
   const totalCount = session.players.length;
   const paidCount = session.players.filter((p) => p.paid).length;
@@ -51,6 +53,22 @@ export function PaymentChecklistCard({ session }: { session: Session }) {
     }
   }
 
+  async function handleTierChange(
+    playerId: string,
+    tier: PlayerTierLevel | null,
+  ) {
+    setTierBusyId(playerId);
+    try {
+      await setPlayerTier(session.id, playerId, tier);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Could not update player tier",
+      );
+    } finally {
+      setTierBusyId(null);
+    }
+  }
+
   return (
     <section
       className={cx(card, "mt-5")}
@@ -58,11 +76,15 @@ export function PaymentChecklistCard({ session }: { session: Session }) {
     >
       <div className={cx(cardHead, "flex-wrap items-center")}>
         <div>
-          <h2 className={cardTitle} id="payment-checklist-title">
-            Payment checklist
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className={cardTitle} id="payment-checklist-title">
+              Payment &amp; Tier Checklist
+            </h2>
+            <TierGuideButton />
+          </div>
           <div className={sub}>
-            Organisers only · track which players have paid for this session.
+            Organisers only · track payments and 1–5 skill tiers for tournament
+            draws.
           </div>
         </div>
 
@@ -119,38 +141,47 @@ export function PaymentChecklistCard({ session }: { session: Session }) {
           {visiblePlayers.map((player) => {
             const isPending = pendingIds.has(player.id);
             return (
-              <label
+              <div
                 key={player.id}
                 className={cx(
-                  "flex cursor-pointer items-center gap-2.5 rounded-2xl border p-3 transition-colors",
+                  "flex items-center justify-between gap-2 rounded-2xl border p-3 transition-colors",
                   player.paid
                     ? "border-[#bde8dd] bg-[#f4fcfa]"
                     : "border-[#e5eff8] bg-[#fafdff] hover:border-[#cbe2f6]",
                   isPending && "opacity-65",
                 )}
               >
-                <input
-                  type="checkbox"
-                  checked={player.paid}
-                  disabled={isPending}
-                  aria-label={`Mark ${player.name} as paid`}
-                  onChange={(e) =>
-                    void handleTogglePaid(player.id, e.target.checked)
-                  }
-                  className="size-4.5 cursor-pointer accent-[#2f8f7b] disabled:cursor-not-allowed"
-                />
-                <span className={avatar}>{initials(player.name)}</span>
-                <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-[#204a74]">
-                  {player.name}
-                </span>
-                {isPending ? (
-                  <span className={cx(spinner, "text-[#5089b7]")} />
-                ) : (
-                  <span className={pill(player.paid ? "ok" : "warn")}>
-                    {player.paid ? "Paid" : "Unpaid"}
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={player.paid}
+                    disabled={isPending}
+                    aria-label={`Mark ${player.name} as paid`}
+                    onChange={(e) =>
+                      void handleTogglePaid(player.id, e.target.checked)
+                    }
+                    className="size-4.5 flex-none cursor-pointer accent-[#2f8f7b] disabled:cursor-not-allowed"
+                  />
+                  <span className={avatar}>{initials(player.name)}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-[#204a74]">
+                    {player.name}
                   </span>
-                )}
-              </label>
+                </label>
+                <div className="flex flex-none items-center gap-1.5">
+                  <TierBadgeSelect
+                    tier={player.tier}
+                    disabled={tierBusyId === player.id}
+                    onChange={(next) => void handleTierChange(player.id, next)}
+                  />
+                  {isPending ? (
+                    <span className={cx(spinner, "text-[#5089b7]")} />
+                  ) : (
+                    <span className={pill(player.paid ? "ok" : "warn")}>
+                      {player.paid ? "Paid" : "Unpaid"}
+                    </span>
+                  )}
+                </div>
+              </div>
             );
           })}
         </div>

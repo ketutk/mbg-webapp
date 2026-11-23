@@ -1,7 +1,7 @@
 import { api } from "../api";
 import { queryClient, queryKeys } from "../query";
 import type { SessionInput, SessionPatchInput } from "../schemas";
-import type { Player, Session } from "../types";
+import type { Player, PlayerTierLevel, Session } from "../types";
 import { CURRENT_KEY, selectSession } from "./current-session";
 
 export async function createSession(input: SessionInput): Promise<Session> {
@@ -99,6 +99,53 @@ export async function setPlayerPaid(
           }
         : s,
     );
+    return player;
+  } catch (err) {
+    if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
+    void queryClient.invalidateQueries({ queryKey: key });
+    throw err;
+  }
+}
+
+export async function setPlayerTier(
+  sessionId: string,
+  playerId: string,
+  tier: PlayerTierLevel | null,
+): Promise<Player> {
+  const key = queryKeys.sessionDetail(sessionId);
+  await queryClient.cancelQueries({ queryKey: key });
+  const prevSession = queryClient.getQueryData<Session>(key);
+
+  if (prevSession) {
+    queryClient.setQueryData<Session>(key, (s) =>
+      s
+        ? {
+            ...s,
+            players: s.players.map((p) =>
+              p.id === playerId ? { ...p, tier } : p,
+            ),
+          }
+        : s,
+    );
+  }
+
+  try {
+    const { player } = await api<{ player: Player }>(
+      `/sessions/${sessionId}/players/${playerId}`,
+      {
+        method: "PATCH",
+        body: { tier },
+      },
+    );
+    queryClient.setQueryData<Session>(key, (s) =>
+      s
+        ? {
+            ...s,
+            players: s.players.map((p) => (p.id === playerId ? player : p)),
+          }
+        : s,
+    );
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tournaments });
     return player;
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);

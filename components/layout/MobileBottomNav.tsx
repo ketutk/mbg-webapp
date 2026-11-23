@@ -38,6 +38,15 @@ function NavIcon({ kind }: { kind: NavKey | "more" }) {
           <path d="M8 14h3M13 14h3M8 17.5h3" />
         </svg>
       );
+    case "tournaments":
+      return (
+        <svg {...props}>
+          <path d="M7 4h10v5a5 5 0 0 1-10 0V4Z" />
+          <path d="M7 6H4.5A1.5 1.5 0 0 0 3 7.5v.5A3.5 3.5 0 0 0 6.5 11.5H7" />
+          <path d="M17 6h2.5A1.5 1.5 0 0 1 21 7.5v.5a3.5 3.5 0 0 1-3.5 3.5H17" />
+          <path d="M12 14v5M8.5 19.5h7" />
+        </svg>
+      );
     case "leaderboards":
       return (
         <svg {...props}>

@@ -353,16 +353,22 @@ export function recommend(
   session: Session,
   seed = 0,
   busy: ReadonlySet<string> = new Set(busyPlayers(session).keys()),
+  excludePlayerIds: ReadonlySet<string> = new Set(),
 ): Recommendation | null {
-  if (session.players.length < 4) return null;
+  const eligiblePlayers = excludePlayerIds.size
+    ? session.players.filter((p) => !excludePlayerIds.has(p.id))
+    : session.players;
+  if (eligiblePlayers.length < 4) return null;
 
   const history = interactionHistory(session);
-  const ranked = getStats(session).sort(
-    (a, b) =>
-      a.count - b.count ||
-      a.last - b.last ||
-      rand(a.player.id, seed) - rand(b.player.id, seed),
-  );
+  const ranked = getStats(session)
+    .filter((s) => !excludePlayerIds.has(s.player.id))
+    .sort(
+      (a, b) =>
+        a.count - b.count ||
+        a.last - b.last ||
+        rand(a.player.id, seed) - rand(b.player.id, seed),
+    );
 
   const available = busy.size
     ? ranked.filter((s) => !busy.has(s.player.id))

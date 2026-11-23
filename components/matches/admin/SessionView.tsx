@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { fmtDate } from "@/lib/format";
@@ -12,8 +13,10 @@ import {
   reorderQueue,
   startQueuedMatch,
   updateSession,
+  useTournamentsList,
 } from "@/lib/store";
 import { useToast } from "@/lib/stores/ui-store";
+import { pill } from "@/lib/ui";
 import type {
   AuthUser,
   Game,
@@ -43,6 +46,11 @@ const RosterDialog = dynamic(() =>
 );
 const SessionSettingsDialog = dynamic(() =>
   import("../SessionSettingsDialog").then((m) => m.SessionSettingsDialog),
+);
+const TournamentCreateDialog = dynamic(() =>
+  import("@/components/tournaments/TournamentCreateDialog").then(
+    (m) => m.TournamentCreateDialog,
+  ),
 );
 
 export function SessionView({
@@ -74,9 +82,34 @@ export function SessionView({
     null,
   );
   const [removingGameId, setRemovingGameId] = useState<string | null>(null);
+  const [creatingTournament, setCreatingTournament] = useState(false);
+  const [excludeTournamentPlayers, setExcludeTournamentPlayers] = useState(true);
+
+  const { data: linkedTournaments } = useTournamentsList({
+    sessionId: session.id,
+  });
+
+  const activeTournamentPlayerIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of linkedTournaments) {
+      if (t.status === "IN_PROGRESS") {
+        for (const pid of t.activePlayerIds) ids.add(pid);
+      }
+    }
+    return ids;
+  }, [linkedTournaments]);
 
   const isSuperadmin = user.role === "SUPERADMIN";
-  const rec = useMemo(() => recommend(session, seed), [session, seed]);
+  const rec = useMemo(
+    () =>
+      recommend(
+        session,
+        seed,
+        undefined,
+        excludeTournamentPlayers ? activeTournamentPlayerIds : undefined,
+      ),
+    [session, seed, excludeTournamentPlayers, activeTournamentPlayerIds],
+  );
   const nextUp = useMemo(() => new Set(rec?.players.map((p) => p.id)), [rec]);
   const queue = useMemo(() => queueOf(session), [session]);
 
@@ -188,8 +221,50 @@ export function SessionView({
         onEditRoster={() => setEditingRoster(true)}
         onEditSettings={() => setEditingSettings(true)}
         onToggleStatus={() => void handleToggleSessionStatus()}
+        onCreateTournament={() => setCreatingTournament(true)}
         onRequestDelete={() => setConfirmDeleteSession(true)}
       />
+
+      {linkedTournaments.length > 0 && (
+        <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#fde68a] bg-[linear-gradient(135deg,#fffbeb,#f4faff)] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-extrabold text-[#92400e]">
+              🏆 Linked Tournament{linkedTournaments.length > 1 ? "s" : ""}:
+            </span>
+            {linkedTournaments.map((t) => (
+              <Link
+                key={t.id}
+                href={`/tournaments/${t.id}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#dcebf8] bg-white px-3 py-1 text-xs font-extrabold text-[#183e6b] no-underline hover:border-[#56a2e6]"
+              >
+                <span>{t.name}</span>
+                <span
+                  className={pill(
+                    t.status === "IN_PROGRESS"
+                      ? "ok"
+                      : t.status === "DRAFT"
+                        ? "warn"
+                        : "default",
+                  )}
+                >
+                  {t.status === "IN_PROGRESS"
+                    ? "Live"
+                    : t.status === "DRAFT"
+                      ? "Draft"
+                      : "Done"}
+                </span>
+                <span className="text-[#337fc4]">→</span>
+              </Link>
+            ))}
+          </div>
+          {activeTournamentPlayerIds.size > 0 && (
+            <span className="text-[11px] font-bold text-[#92400e]">
+              {activeTournamentPlayerIds.size} active in bracket · eliminated
+              pairs flow to casual courts
+            </span>
+          )}
+        </section>
+      )}
 
       <CourtBoard
         session={session}
@@ -237,6 +312,19 @@ export function SessionView({
           <NextMatch
             session={session}
             rec={rec}
+            tournamentFilter={
+              activeTournamentPlayerIds.size > 0
+                ? {
+                    activeCount: activeTournamentPlayerIds.size,
+                    casualCount: Math.max(
+                      0,
+                      session.players.length - activeTournamentPlayerIds.size,
+                    ),
+                    excluded: excludeTournamentPlayers,
+                    onToggle: setExcludeTournamentPlayers,
+                  }
+                : undefined
+            }
             onShuffle={() => {
               setSeed((s) => s + 1);
               showToast("Shuffled — tried a fresh match combination");
@@ -308,6 +396,16 @@ export function SessionView({
           busy={deletingSession}
           onConfirm={() => void handleConfirmDeleteSession()}
           onClose={() => setConfirmDeleteSession(false)}
+        />
+      )}
+      {creatingTournament && (
+        <TournamentCreateDialog
+          defaultSessionId={session.id}
+          onClose={() => setCreatingTournament(false)}
+          onCreated={(created) => {
+            setCreatingTournament(false);
+            router.push(`/tournaments/${created.id}`);
+          }}
         />
       )}
     </>

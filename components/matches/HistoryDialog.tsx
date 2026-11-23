@@ -90,6 +90,14 @@ export function HistoryDialog({
                         · {fmtTime(g.createdAt)}
                       </span>
                     )}
+                    {g.tournament && (
+                      <span
+                        className="inline-flex items-center rounded-full border border-[#fde68a] bg-[#fffbeb] px-2 py-0.5 text-[10px] font-extrabold text-[#b45309]"
+                        title={g.tournament.tournamentName}
+                      >
+                        🏆 {g.tournament.label}
+                      </span>
+                    )}
                     {g.status === "QUEUED" && (
                       <span className={pill("warn")}>Queued</span>
                     )}

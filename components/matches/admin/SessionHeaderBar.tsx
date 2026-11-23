@@ -15,6 +15,7 @@ export function SessionHeaderBar({
   onEditRoster,
   onEditSettings,
   onToggleStatus,
+  onCreateTournament,
   onRequestDelete,
 }: {
   session: Session;
@@ -26,6 +27,7 @@ export function SessionHeaderBar({
   onEditRoster: () => void;
   onEditSettings: () => void;
   onToggleStatus: () => void;
+  onCreateTournament: () => void;
   onRequestDelete: () => void;
 }) {
   return (
@@ -85,6 +87,13 @@ export function SessionHeaderBar({
           onClick={onEditSettings}
         >
           Session settings
+        </button>
+        <button
+          type="button"
+          className={btn("light")}
+          onClick={onCreateTournament}
+        >
+          🏆 New tournament
         </button>
         {isSuperadmin && (
           <button

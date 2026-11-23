@@ -22,6 +22,10 @@ export const queryKeys = {
   treasurySummary: (params?: TreasuryFilterParams) =>
     ["treasury", "summary", params ?? {}] as const,
   treasuryCategories: ["treasury", "categories"] as const,
+  tournaments: ["tournaments"] as const,
+  tournamentsList: (params?: { sessionId?: string; status?: string }) =>
+    ["tournaments", "list", params ?? {}] as const,
+  tournamentDetail: (id: string) => ["tournaments", "detail", id] as const,
   admins: ["admins", "list"] as const,
   clubSettings: ["club-settings"] as const,
 };

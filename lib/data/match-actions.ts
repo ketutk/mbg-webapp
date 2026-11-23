@@ -94,6 +94,7 @@ export async function startQueuedMatch(
     void queryClient.invalidateQueries({
       queryKey: queryKeys.sessionSummary(sessionId),
     });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tournaments });
     return game;
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
@@ -143,6 +144,7 @@ export async function finishMatch(
     void queryClient.invalidateQueries({
       queryKey: queryKeys.sessionSummary(sessionId),
     });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tournaments });
     return game;
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
@@ -214,6 +216,7 @@ export async function removeGame(
       queryKey: queryKeys.sessionSummary(sessionId),
     });
     void queryClient.invalidateQueries({ queryKey: queryKeys.sessionsList });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tournaments });
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
     throw err;
@@ -239,6 +242,7 @@ export async function clearGames(sessionId: string): Promise<void> {
       queryKey: queryKeys.sessionSummary(sessionId),
     });
     void queryClient.invalidateQueries({ queryKey: queryKeys.sessionsList });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tournaments });
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
     throw err;
@@ -292,6 +296,7 @@ export async function setPlayed(
     void queryClient.invalidateQueries({
       queryKey: queryKeys.sessionSummary(sessionId),
     });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.tournaments });
     return game;
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
