@@ -30,7 +30,10 @@ export const metadata: Metadata = {
     template: `%s · ${SITE_NAME}`,
   },
   verification:{
-    google:"dAgrFBWZPzgSO1T7qbBF6YOQ8yppJkv0mQ3PV7lu6z8"
+    google:"dAgrFBWZPzgSO1T7qbBF6YOQ8yppJkv0mQ3PV7lu6z8",
+    other:{
+      "google-site-verification":"_FD8vE3eAysb1hb3V8WuzZht_8SSAPDAPxiTwJUiSXg"
+    }
   },
   description: SITE_DESCRIPTION,
   applicationName: SITE_NAME,
