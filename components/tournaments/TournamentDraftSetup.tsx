@@ -9,6 +9,7 @@ import {
   setPlayerTier,
   startTournament,
   updateTournament,
+  updateTournamentTeam,
 } from "@/lib/store";
 import { useToast } from "@/lib/stores/ui-store";
 import type { PlayerTierLevel, TournamentDetail } from "@/lib/types";
@@ -40,6 +41,10 @@ export function TournamentDraftSetup({
   const [manualP1, setManualP1] = useState("");
   const [manualP2, setManualP2] = useState("");
   const [manualName, setManualName] = useState("");
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editP1, setEditP1] = useState("");
+  const [editP2, setEditP2] = useState("");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -65,6 +70,14 @@ export function TournamentDraftSetup({
     [tournament.sessionPlayers, selectedIds],
   );
 
+  const remainingSelectedArray = useMemo(
+    () =>
+      tournament.sessionPlayers
+        .filter((p) => selectedIds.has(p.id) && !assignedIds.has(p.id))
+        .map((p) => p.id),
+    [tournament.sessionPlayers, selectedIds, assignedIds],
+  );
+
   const unratedSelectedCount = useMemo(
     () =>
       tournament.sessionPlayers.filter(
@@ -87,19 +100,32 @@ export function TournamentDraftSetup({
     }
   }
 
-  async function handleRandomize() {
+  async function handleRandomize(replaceExisting: boolean) {
     setError("");
-    if (selectedArray.length < 4 || selectedArray.length % 2 !== 0) {
-      setError("Select an even number of players (at least 4) to randomize.");
+    const targetIds = replaceExisting ? selectedArray : remainingSelectedArray;
+    if (
+      (replaceExisting && targetIds.length < 4) ||
+      (!replaceExisting && targetIds.length < 2) ||
+      targetIds.length % 2 !== 0
+    ) {
+      setError(
+        replaceExisting
+          ? "Select an even number of players (at least 4) to randomize all."
+          : "Select an even number of unassigned players (at least 2) to auto-pair remaining.",
+      );
       return;
     }
-    setBusyAction("randomize");
+    setBusyAction(replaceExisting ? "randomize-all" : "randomize-remaining");
     try {
       await randomizeTournamentTeams(tournament.id, {
-        playerIds: selectedArray,
-        replaceExisting: true,
+        playerIds: targetIds,
+        replaceExisting,
       });
-      showToast("Generated Balanced Pairs (High + Low)!");
+      showToast(
+        replaceExisting
+          ? "Generated Balanced Pairs (High + Low)!"
+          : "Auto-paired remaining players!",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not randomize teams");
     } finally {
@@ -124,9 +150,43 @@ export function TournamentDraftSetup({
       setManualP1("");
       setManualP2("");
       setManualName("");
-      showToast("Team added");
+      showToast("Pair created");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add team");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function startEditTeam(teamId: string) {
+    const t = tournament.teams.find((tm) => tm.id === teamId);
+    if (!t) return;
+    setEditingTeamId(teamId);
+    setEditName(t.name ?? "");
+    setEditP1(t.player1.id);
+    setEditP2(t.player2.id);
+    setError("");
+  }
+
+  async function handleSaveEditTeam(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingTeamId) return;
+    setError("");
+    if (editP1 === editP2) {
+      setError("Pick two different players.");
+      return;
+    }
+    setBusyAction(`edit:${editingTeamId}`);
+    try {
+      await updateTournamentTeam(tournament.id, editingTeamId, {
+        name: editName.trim() || null,
+        player1Id: editP1,
+        player2Id: editP2,
+      });
+      setEditingTeamId(null);
+      showToast("Pair updated");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update team");
     } finally {
       setBusyAction(null);
     }
@@ -311,27 +371,52 @@ export function TournamentDraftSetup({
           </ul>
         )}
 
-        <div className="border-t border-[#eef4f9] bg-[#fafdff] px-[22px] py-3.5 max-[860px]:px-[15px]">
+        <div className="grid gap-2 border-t border-[#eef4f9] bg-[#fafdff] px-[22px] py-3.5 max-[860px]:px-[15px]">
+          {tournament.teams.length > 0 &&
+            remainingSelectedArray.length >= 2 &&
+            remainingSelectedArray.length % 2 === 0 && (
+              <button
+                type="button"
+                className={cx(btn("primary"), "w-full")}
+                disabled={busyAction !== null}
+                onClick={() => void handleRandomize(false)}
+              >
+                {busyAction === "randomize-remaining" ? (
+                  <>
+                    <span className={cx(spinner, "mr-1.5")} />
+                    Auto-pairing remaining…
+                  </>
+                ) : (
+                  `🎲 Auto-Pair Remaining (${remainingSelectedArray.length} players → ${remainingSelectedArray.length / 2} teams)`
+                )}
+              </button>
+            )}
+
           <button
             type="button"
-            className={cx(btn("primary"), "w-full")}
+            className={cx(
+              btn(tournament.teams.length > 0 ? "light" : "primary"),
+              "w-full",
+            )}
             disabled={
               busyAction !== null ||
               selectedArray.length < 4 ||
               selectedArray.length % 2 !== 0
             }
-            onClick={() => void handleRandomize()}
+            onClick={() => void handleRandomize(true)}
           >
-            {busyAction === "randomize" ? (
+            {busyAction === "randomize-all" ? (
               <>
                 <span className={cx(spinner, "mr-1.5")} />
                 Generating Balanced Pairs…
               </>
+            ) : tournament.teams.length > 0 ? (
+              `↻ Re-randomize All (${selectedArray.length} players)`
             ) : (
               `🎲 Randomize Balanced Pairs (${selectedArray.length} players → ${Math.floor(selectedArray.length / 2)} teams)`
             )}
           </button>
-          <p className="mt-1.5 text-center text-[11px] text-muted">
+          <p className="text-center text-[11px] text-muted">
             Pairs strongest with weakest (High + Low) within shuffled tier
             groups.
           </p>
@@ -346,8 +431,8 @@ export function TournamentDraftSetup({
               Teams &amp; Seeding ({tournament.teams.length})
             </h2>
             <p className={cx(sub, "mt-0.5")}>
-              Fixed doubles pairs for this bracket. Reorder seeds or add pairs
-              manually.
+              Create fixed pairs manually, edit/swap players, or auto-pair
+              remaining players.
             </p>
           </div>
           {tournament.teams.length >= 2 && (
@@ -372,117 +457,221 @@ export function TournamentDraftSetup({
           )}
         </div>
 
-        {/* Manual pair adder */}
+        {/* Manual pair creator */}
         {unassignedPlayers.length >= 2 && (
           <form
             onSubmit={handleAddManual}
-            className="grid grid-cols-[1fr_1fr_auto] items-center gap-2 border-b border-[#eef4f9] bg-[#fafdff] px-[22px] py-3 max-[600px]:grid-cols-1 max-[860px]:px-[15px]"
+            className="grid gap-2 border-b border-[#eef4f9] bg-[#fafdff] px-[22px] py-3 max-[860px]:px-[15px]"
           >
-            <select
-              className={fieldInput}
-              value={manualP1}
-              onChange={(e) => setManualP1(e.target.value)}
-              aria-label="Player 1"
-            >
-              <option value="">Player 1…</option>
-              {unassignedPlayers
-                .filter((p) => p.id !== manualP2)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.tier ? `(T${p.tier})` : ""}
-                  </option>
-                ))}
-            </select>
-            <select
-              className={fieldInput}
-              value={manualP2}
-              onChange={(e) => setManualP2(e.target.value)}
-              aria-label="Player 2"
-            >
-              <option value="">Player 2…</option>
-              {unassignedPlayers
-                .filter((p) => p.id !== manualP1)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.tier ? `(T${p.tier})` : ""}
-                  </option>
-                ))}
-            </select>
-            <button
-              type="submit"
-              className={btn("light", "sm")}
-              disabled={busyAction !== null || !manualP1 || !manualP2}
-            >
-              ＋ Add pair
-            </button>
+            <div className="grid grid-cols-2 gap-2 max-[520px]:grid-cols-1">
+              <select
+                className={fieldInput}
+                value={manualP1}
+                onChange={(e) => setManualP1(e.target.value)}
+                aria-label="Player 1"
+              >
+                <option value="">Player 1…</option>
+                {unassignedPlayers
+                  .filter((p) => p.id !== manualP2)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.tier ? `(T${p.tier})` : ""}
+                    </option>
+                  ))}
+              </select>
+              <select
+                className={fieldInput}
+                value={manualP2}
+                onChange={(e) => setManualP2(e.target.value)}
+                aria-label="Player 2"
+              >
+                <option value="">Player 2…</option>
+                {unassignedPlayers
+                  .filter((p) => p.id !== manualP1)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.tier ? `(T${p.tier})` : ""}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="flex gap-2 max-[520px]:flex-col">
+              <input
+                type="text"
+                className={cx(fieldInput, "flex-1")}
+                placeholder="Optional team name (e.g. Smash Bros)"
+                maxLength={50}
+                value={manualName}
+                onChange={(e) => setManualName(e.target.value)}
+              />
+              <button
+                type="submit"
+                className={btn("light", "sm")}
+                disabled={busyAction !== null || !manualP1 || !manualP2}
+              >
+                {busyAction === "add" ? "Creating…" : "＋ Create Pair"}
+              </button>
+            </div>
           </form>
         )}
 
         {tournament.teams.length === 0 ? (
           <div className={empty}>
-            No teams yet. Use “🎲 Randomize Balanced Pairs” on the left or add
-            pairs manually above.
+            No teams yet. Create pairs manually above or use Balanced Pairs on
+            the left.
           </div>
         ) : (
           <ol className="divide-y divide-[#f0f5f9]">
-            {tournament.teams.map((team, idx) => (
-              <li
-                key={team.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-[22px] py-3 max-[860px]:px-[15px]"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="grid size-7 flex-none place-items-center rounded-lg bg-[#eaf5ff] font-display text-xs font-extrabold text-[#204a74]">
-                    #{team.seed}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-extrabold text-[#183e6b]">
-                      {team.displayName}
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <TierBadge tier={team.player1.tier} />
-                      <TierBadge tier={team.player2.tier} />
-                      {team.tierSum != null && (
-                        <span className="text-[11px] font-extrabold text-[#337fc4]">
-                          · Sum {team.tierSum}
+            {tournament.teams.map((team, idx) => {
+              const isEditing = editingTeamId === team.id;
+              return (
+                <li
+                  key={team.id}
+                  className="px-[22px] py-3 max-[860px]:px-[15px]"
+                >
+                  {isEditing ? (
+                    <form onSubmit={handleSaveEditTeam} className="grid gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="grid size-7 flex-none place-items-center rounded-lg bg-[#eaf5ff] font-display text-xs font-extrabold text-[#204a74]">
+                          #{team.seed}
                         </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                        <input
+                          type="text"
+                          className={cx(fieldInput, "flex-1")}
+                          placeholder="Custom team name (optional)"
+                          maxLength={50}
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 max-[520px]:grid-cols-1">
+                        <select
+                          className={fieldInput}
+                          value={editP1}
+                          onChange={(e) => setEditP1(e.target.value)}
+                          aria-label="Edit Player 1"
+                        >
+                          {tournament.sessionPlayers
+                            .filter((p) => p.id !== editP2)
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} {p.tier ? `(T${p.tier})` : ""}
+                                {assignedIds.has(p.id) &&
+                                p.id !== team.player1.id &&
+                                p.id !== team.player2.id
+                                  ? " · Swap"
+                                  : ""}
+                              </option>
+                            ))}
+                        </select>
+                        <select
+                          className={fieldInput}
+                          value={editP2}
+                          onChange={(e) => setEditP2(e.target.value)}
+                          aria-label="Edit Player 2"
+                        >
+                          {tournament.sessionPlayers
+                            .filter((p) => p.id !== editP1)
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} {p.tier ? `(T${p.tier})` : ""}
+                                {assignedIds.has(p.id) &&
+                                p.id !== team.player1.id &&
+                                p.id !== team.player2.id
+                                  ? " · Swap"
+                                  : ""}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          className={btn("light", "sm")}
+                          onClick={() => setEditingTeamId(null)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className={btn("primary", "sm")}
+                          disabled={busyAction !== null}
+                        >
+                          {busyAction === `edit:${team.id}`
+                            ? "Saving…"
+                            : "Save pair"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="grid size-7 flex-none place-items-center rounded-lg bg-[#eaf5ff] font-display text-xs font-extrabold text-[#204a74]">
+                          #{team.seed}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-extrabold text-[#183e6b]">
+                            {team.displayName}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <TierBadge tier={team.player1.tier} />
+                            <TierBadge tier={team.player2.tier} />
+                            {team.tierSum != null && (
+                              <span className="text-[11px] font-extrabold text-[#337fc4]">
+                                · Sum {team.tierSum}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
 
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    className={btn("light", "sm")}
-                    disabled={idx === 0 || busyAction !== null}
-                    onClick={() => void handleReorder("move", idx, -1)}
-                    aria-label="Move seed up"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className={btn("light", "sm")}
-                    disabled={
-                      idx === tournament.teams.length - 1 || busyAction !== null
-                    }
-                    onClick={() => void handleReorder("move", idx, 1)}
-                    aria-label="Move seed down"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    className={btn("danger", "sm")}
-                    disabled={busyAction !== null}
-                    onClick={() => void handleRemoveTeam(team.id)}
-                    aria-label="Remove team"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </li>
-            ))}
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          className={btn("light", "sm")}
+                          disabled={busyAction !== null}
+                          onClick={() => startEditTeam(team.id)}
+                          aria-label="Edit team"
+                          title="Rename or swap players"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className={btn("light", "sm")}
+                          disabled={idx === 0 || busyAction !== null}
+                          onClick={() => void handleReorder("move", idx, -1)}
+                          aria-label="Move seed up"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className={btn("light", "sm")}
+                          disabled={
+                            idx === tournament.teams.length - 1 ||
+                            busyAction !== null
+                          }
+                          onClick={() => void handleReorder("move", idx, 1)}
+                          aria-label="Move seed down"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className={btn("danger", "sm")}
+                          disabled={busyAction !== null}
+                          onClick={() => void handleRemoveTeam(team.id)}
+                          aria-label="Remove team"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ol>
         )}
 

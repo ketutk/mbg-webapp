@@ -1,7 +1,7 @@
 import { api } from "../api";
 import { queryClient, queryKeys } from "../query";
 import type { SessionInput, SessionPatchInput } from "../schemas";
-import type { Player, PlayerTierLevel, Session } from "../types";
+import type { Player, PlayerTierLevel, Session, TournamentDetail } from "../types";
 import { CURRENT_KEY, selectSession } from "./current-session";
 
 export async function createSession(input: SessionInput): Promise<Session> {
@@ -116,6 +116,36 @@ export async function setPlayerTier(
   await queryClient.cancelQueries({ queryKey: key });
   const prevSession = queryClient.getQueryData<Session>(key);
 
+  const patchTournamentCache = (nextTier: PlayerTierLevel | null) => {
+    queryClient.setQueriesData<TournamentDetail>(
+      { queryKey: ["tournaments", "detail"] },
+      (t) => {
+        if (!t || t.session.id !== sessionId) return t;
+        const sessionPlayers = t.sessionPlayers.map((sp) =>
+          sp.id === playerId ? { ...sp, tier: nextTier } : sp,
+        );
+        const teams = t.teams.map((tm) => {
+          const p1 =
+            tm.player1.id === playerId
+              ? { ...tm.player1, tier: nextTier }
+              : tm.player1;
+          const p2 =
+            tm.player2.id === playerId
+              ? { ...tm.player2, tier: nextTier }
+              : tm.player2;
+          return {
+            ...tm,
+            player1: p1,
+            player2: p2,
+            tierSum:
+              p1.tier != null && p2.tier != null ? p1.tier + p2.tier : null,
+          };
+        });
+        return { ...t, sessionPlayers, teams };
+      },
+    );
+  };
+
   if (prevSession) {
     queryClient.setQueryData<Session>(key, (s) =>
       s
@@ -128,6 +158,7 @@ export async function setPlayerTier(
         : s,
     );
   }
+  patchTournamentCache(tier);
 
   try {
     const { player } = await api<{ player: Player }>(
@@ -145,11 +176,12 @@ export async function setPlayerTier(
           }
         : s,
     );
-    void queryClient.invalidateQueries({ queryKey: queryKeys.tournaments });
+    patchTournamentCache(player.tier ?? null);
     return player;
   } catch (err) {
     if (prevSession) queryClient.setQueryData<Session>(key, prevSession);
     void queryClient.invalidateQueries({ queryKey: key });
+    void queryClient.invalidateQueries({ queryKey: ["tournaments", "detail"] });
     throw err;
   }
 }

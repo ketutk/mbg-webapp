@@ -252,6 +252,7 @@ model TournamentMatch {
   section          BracketSection        @default(MAIN)
   round            Int
   slot             Int
+  playOrder        Int?
   label            String?
   status           TournamentMatchStatus @default(PENDING)
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "./db";
 import { fromDateStr, toTournamentDetailDTO, toTournamentListItemDTO } from "./dto";
@@ -15,6 +16,7 @@ import type {
   TournamentPatchInput,
   TournamentRandomizeInput,
   TournamentTeamAddInput,
+  TournamentTeamPatchInput,
   TournamentTeamsReorderInput,
 } from "@/lib/schemas";
 import type {
@@ -22,6 +24,7 @@ import type {
   PlayerTierLevel,
   TournamentDetail,
   TournamentListItem,
+  TournamentMatchStatus,
   TournamentStatus,
 } from "@/lib/types";
 
@@ -32,23 +35,10 @@ type TxClient = Omit<
 
 const TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 } as const;
 
-const tournamentDetailInclude = {
+const tournamentCoreInclude = {
   session: {
     include: {
       players: { orderBy: { position: "asc" as const } },
-      games: {
-        orderBy: { seq: "asc" as const },
-        include: {
-          players: true,
-          tournamentMatch: {
-            select: {
-              id: true,
-              label: true,
-              tournament: { select: { id: true, name: true } },
-            },
-          },
-        },
-      },
     },
   },
   teams: {
@@ -60,6 +50,69 @@ const tournamentDetailInclude = {
     include: { game: true },
   },
 };
+
+async function loadSessionAggregates(
+  db: Pick<PrismaClient, "gamePlayer" | "game">,
+  sessionId: string,
+) {
+  const [groupedCounts, onCourtGames] = await Promise.all([
+    db.gamePlayer.groupBy({
+      by: ["playerId"],
+      where: { game: { sessionId } },
+      _count: { _all: true },
+    }),
+    db.game.findMany({
+      where: { sessionId, status: "ON_COURT" },
+      select: {
+        courtNumber: true,
+        players: { select: { playerId: true } },
+      },
+    }),
+  ]);
+
+  const gameCountMap = new Map<string, number>();
+  for (const row of groupedCounts) {
+    gameCountMap.set(row.playerId, row._count._all);
+  }
+
+  const occupiedCourts: number[] = [];
+  const busyPlayerIds = new Set<string>();
+  for (const g of onCourtGames) {
+    if (g.courtNumber != null) occupiedCourts.push(g.courtNumber);
+    for (const gp of g.players) busyPlayerIds.add(gp.playerId);
+  }
+
+  return {
+    gameCountMap,
+    occupiedCourts,
+    busyPlayerIds: [...busyPlayerIds],
+  };
+}
+
+async function loadTournamentDetail(
+  db: Pick<PrismaClient, "tournament" | "gamePlayer" | "game">,
+  id: string,
+  includeTiers: boolean,
+  knownSessionId?: string,
+): Promise<TournamentDetail> {
+  if (knownSessionId) {
+    const [row, aggregates] = await Promise.all([
+      db.tournament.findUniqueOrThrow({
+        where: { id },
+        include: tournamentCoreInclude,
+      }),
+      loadSessionAggregates(db, knownSessionId),
+    ]);
+    return toTournamentDetailDTO(row, includeTiers, aggregates);
+  }
+
+  const row = await db.tournament.findUniqueOrThrow({
+    where: { id },
+    include: tournamentCoreInclude,
+  });
+  const aggregates = await loadSessionAggregates(db, row.sessionId);
+  return toTournamentDetailDTO(row, includeTiers, aggregates);
+}
 
 function dedupeNames(names: string[]): { name: string; nameKey: string }[] {
   const seen = new Set<string>();
@@ -214,7 +267,7 @@ export async function getTournamentDetail(
 ): Promise<TournamentDetail> {
   const row = await prisma.tournament.findUnique({
     where: { id },
-    include: tournamentDetailInclude,
+    include: tournamentCoreInclude,
   });
   if (!row) {
     throw new HttpError(404, "NOT_FOUND", "Tournament not found.");
@@ -233,7 +286,8 @@ export async function getTournamentDetail(
       "Draft tournaments are only visible to organisers.",
     );
   }
-  return toTournamentDetailDTO(row, user !== null);
+  const aggregates = await loadSessionAggregates(prisma, row.sessionId);
+  return toTournamentDetailDTO(row, user !== null, aggregates);
 }
 
 export async function createTournament(
@@ -292,10 +346,9 @@ export async function createTournament(
         preferredCourts,
         createdById: userId,
       },
-      include: tournamentDetailInclude,
     });
 
-    return toTournamentDetailDTO(created, true);
+    return loadTournamentDetail(tx, created.id, true, session.id);
   }, TX_OPTIONS);
 }
 
@@ -325,7 +378,7 @@ export async function updateTournament(
         )
       : undefined;
 
-    const updated = await tx.tournament.update({
+    await tx.tournament.update({
       where: { id },
       data: {
         ...(input.name !== undefined ? { name: input.name } : {}),
@@ -334,10 +387,9 @@ export async function updateTournament(
           : {}),
         ...(preferredCourts !== undefined ? { preferredCourts } : {}),
       },
-      include: tournamentDetailInclude,
     });
 
-    return toTournamentDetailDTO(updated, true);
+    return loadTournamentDetail(tx, id, true, existing.sessionId);
   }, TX_OPTIONS);
 }
 
@@ -407,11 +459,97 @@ export async function addTournamentTeam(
       },
     });
 
-    const full = await tx.tournament.findUniqueOrThrow({
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
+  }, TX_OPTIONS);
+}
+
+export async function updateTournamentTeam(
+  tournamentId: string,
+  teamId: string,
+  input: TournamentTeamPatchInput,
+): Promise<TournamentDetail> {
+  return prisma.$transaction(async (tx) => {
+    const t = await tx.tournament.findUnique({
       where: { id: tournamentId },
-      include: tournamentDetailInclude,
+      include: { session: { include: { players: { select: { id: true } } } }, teams: true },
     });
-    return toTournamentDetailDTO(full, true);
+    if (!t) {
+      throw new HttpError(404, "NOT_FOUND", "Tournament not found.");
+    }
+    if (t.status !== "DRAFT") {
+      throw new HttpError(
+        409,
+        "INVALID_STATE",
+        "Teams can only be edited while tournament is in Draft.",
+      );
+    }
+
+    const team = t.teams.find((tm) => tm.id === teamId);
+    if (!team) {
+      throw new HttpError(404, "NOT_FOUND", "Team not found in this tournament.");
+    }
+
+    const sessionPlayerIds = new Set(t.session.players.map((p) => p.id));
+    const nextP1 = input.player1Id ?? team.player1Id;
+    const nextP2 = input.player2Id ?? team.player2Id;
+
+    if (!sessionPlayerIds.has(nextP1) || !sessionPlayerIds.has(nextP2)) {
+      throw new HttpError(
+        400,
+        "VALIDATION",
+        "Selected players must belong to the linked session roster.",
+      );
+    }
+    if (nextP1 === nextP2) {
+      throw new HttpError(
+        400,
+        "VALIDATION",
+        "Pick two different players for a doubles team.",
+      );
+    }
+
+    // If either selected player is currently in another draft team, swap them cleanly
+    if (nextP1 !== team.player1Id) {
+      const other = t.teams.find(
+        (tm) =>
+          tm.id !== teamId &&
+          (tm.player1Id === nextP1 || tm.player2Id === nextP1),
+      );
+      if (other) {
+        const swappedSlot =
+          other.player1Id === nextP1 ? { player1Id: team.player1Id } : { player2Id: team.player1Id };
+        await tx.tournamentTeam.update({
+          where: { id: other.id },
+          data: swappedSlot,
+        });
+      }
+    }
+    if (nextP2 !== team.player2Id) {
+      const other = t.teams.find(
+        (tm) =>
+          tm.id !== teamId &&
+          (tm.player1Id === nextP2 || tm.player2Id === nextP2),
+      );
+      if (other) {
+        const swappedSlot =
+          other.player1Id === nextP2 ? { player1Id: team.player2Id } : { player2Id: team.player2Id };
+        await tx.tournamentTeam.update({
+          where: { id: other.id },
+          data: swappedSlot,
+        });
+      }
+    }
+
+    await tx.tournamentTeam.update({
+      where: { id: teamId },
+      data: {
+        ...(input.name !== undefined ? { name: input.name?.trim() || null } : {}),
+        player1Id: nextP1,
+        player2Id: nextP2,
+      },
+    });
+
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
   }, TX_OPTIONS);
 }
 
@@ -479,11 +617,7 @@ export async function randomizeTournamentTeams(
       })),
     });
 
-    const full = await tx.tournament.findUniqueOrThrow({
-      where: { id: tournamentId },
-      include: tournamentDetailInclude,
-    });
-    return toTournamentDetailDTO(full, true);
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
   }, TX_OPTIONS);
 }
 
@@ -542,25 +676,28 @@ export async function reorderTournamentTeams(
       ).map((team) => team.id);
     }
 
-    // Offset seeds temporarily to avoid (tournamentId, seed) unique collisions
-    for (let i = 0; i < orderedIds.length; i++) {
-      await tx.tournamentTeam.update({
-        where: { id: orderedIds[i] },
-        data: { seed: 10_000 + i + 1 },
-      });
-    }
-    for (let i = 0; i < orderedIds.length; i++) {
-      await tx.tournamentTeam.update({
-        where: { id: orderedIds[i] },
-        data: { seed: i + 1 },
-      });
-    }
+    // Two batched SQL UPDATE statements avoid (tournamentId, seed) unique collisions
+    const tempPairs = Prisma.join(
+      orderedIds.map((id, idx) => Prisma.sql`(${id}, ${-(idx + 1)})`),
+    );
+    await tx.$executeRaw`
+      UPDATE "TournamentTeam" AS t
+      SET "seed" = v.seed::int
+      FROM (VALUES ${tempPairs}) AS v(id, seed)
+      WHERE t."id" = v.id
+    `;
 
-    const full = await tx.tournament.findUniqueOrThrow({
-      where: { id: tournamentId },
-      include: tournamentDetailInclude,
-    });
-    return toTournamentDetailDTO(full, true);
+    const finalPairs = Prisma.join(
+      orderedIds.map((id, idx) => Prisma.sql`(${id}, ${idx + 1})`),
+    );
+    await tx.$executeRaw`
+      UPDATE "TournamentTeam" AS t
+      SET "seed" = v.seed::int
+      FROM (VALUES ${finalPairs}) AS v(id, seed)
+      WHERE t."id" = v.id
+    `;
+
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
   }, TX_OPTIONS);
 }
 
@@ -591,21 +728,13 @@ export async function removeTournamentTeam(
 
     await tx.tournamentTeam.delete({ where: { id: teamId } });
 
-    const remaining = t.teams.filter((team) => team.id !== teamId);
-    for (let i = 0; i < remaining.length; i++) {
-      if (remaining[i].seed !== i + 1) {
-        await tx.tournamentTeam.update({
-          where: { id: remaining[i].id },
-          data: { seed: i + 1 },
-        });
-      }
-    }
+    await tx.$executeRaw`
+      UPDATE "TournamentTeam"
+      SET "seed" = "seed" - 1
+      WHERE "tournamentId" = ${tournamentId} AND "seed" > ${target.seed}
+    `;
 
-    const full = await tx.tournament.findUniqueOrThrow({
-      where: { id: tournamentId },
-      include: tournamentDetailInclude,
-    });
-    return toTournamentDetailDTO(full, true);
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
   }, TX_OPTIONS);
 }
 
@@ -638,48 +767,38 @@ export async function startTournament(
 
     const keyToId = new Map<string, string>();
     for (const m of generated) {
-      const created = await tx.tournamentMatch.create({
-        data: {
-          tournamentId,
-          section: m.section,
-          round: m.round,
-          slot: m.slot,
-          label: m.label,
-          status: m.status,
-          teamAId: m.teamAId,
-          teamBId: m.teamBId,
-          winnerTeamId: m.winnerTeamId,
-        },
-      });
-      keyToId.set(m.key, created.id);
+      keyToId.set(m.key, randomUUID());
     }
 
-    for (const m of generated) {
-      if (m.nextMatchKey || m.loserNextMatchKey) {
-        await tx.tournamentMatch.update({
-          where: { id: keyToId.get(m.key)! },
-          data: {
-            nextMatchId: m.nextMatchKey ? keyToId.get(m.nextMatchKey)! : null,
-            nextMatchSlot: m.nextMatchSlot,
-            loserNextMatchId: m.loserNextMatchKey
-              ? keyToId.get(m.loserNextMatchKey)!
-              : null,
-            loserNextSlot: m.loserNextSlot,
-          },
-        });
-      }
-    }
+    let playSeq = 1;
+    await tx.tournamentMatch.createMany({
+      data: generated.map((m) => ({
+        id: keyToId.get(m.key)!,
+        tournamentId,
+        section: m.section,
+        round: m.round,
+        slot: m.slot,
+        playOrder: m.status === "BYE" ? null : playSeq++,
+        label: m.label,
+        status: m.status,
+        teamAId: m.teamAId,
+        teamBId: m.teamBId,
+        winnerTeamId: m.winnerTeamId,
+        nextMatchId: m.nextMatchKey ? keyToId.get(m.nextMatchKey)! : null,
+        nextMatchSlot: m.nextMatchSlot,
+        loserNextMatchId: m.loserNextMatchKey
+          ? keyToId.get(m.loserNextMatchKey)!
+          : null,
+        loserNextSlot: m.loserNextSlot,
+      })),
+    });
 
     await tx.tournament.update({
       where: { id: tournamentId },
       data: { status: "IN_PROGRESS" },
     });
 
-    const full = await tx.tournament.findUniqueOrThrow({
-      where: { id: tournamentId },
-      include: tournamentDetailInclude,
-    });
-    return toTournamentDetailDTO(full, true);
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
   }, TX_OPTIONS);
 }
 
@@ -719,11 +838,7 @@ export async function resetTournament(
       data: { status: "DRAFT" },
     });
 
-    const full = await tx.tournament.findUniqueOrThrow({
-      where: { id: tournamentId },
-      include: tournamentDetailInclude,
-    });
-    return toTournamentDetailDTO(full, true);
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
   }, TX_OPTIONS);
 }
 
@@ -857,11 +972,7 @@ export async function assignTournamentMatch(
         data: { status: "IN_PROGRESS", gameId: createdGameId },
       });
 
-      const full = await tx.tournament.findUniqueOrThrow({
-        where: { id: tournamentId },
-        include: tournamentDetailInclude,
-      });
-      return toTournamentDetailDTO(full, true);
+      return loadTournamentDetail(tx, tournamentId, true, session.id);
     }, TX_OPTIONS);
 
   try {
@@ -904,11 +1015,7 @@ export async function walkoverTournamentMatch(
 
     await advanceTournamentMatch(tx, match.id, winnerSide);
 
-    const full = await tx.tournament.findUniqueOrThrow({
-      where: { id: tournamentId },
-      include: tournamentDetailInclude,
-    });
-    return toTournamentDetailDTO(full, true);
+    return loadTournamentDetail(tx, tournamentId, true);
   }, TX_OPTIONS);
 }
 
@@ -1017,10 +1124,179 @@ export async function undoTournamentMatch(
       data: { status: "IN_PROGRESS" },
     });
 
-    const full = await tx.tournament.findUniqueOrThrow({
+    return loadTournamentDetail(tx, tournamentId, true);
+  }, TX_OPTIONS);
+}
+
+export async function updateTournamentMatchOrder(
+  tournamentId: string,
+  matchIds: string[],
+): Promise<TournamentDetail> {
+  return prisma.$transaction(async (tx) => {
+    const t = await tx.tournament.findUnique({
       where: { id: tournamentId },
-      include: tournamentDetailInclude,
+      include: { matches: { select: { id: true, status: true } } },
     });
-    return toTournamentDetailDTO(full, true);
+    if (!t) {
+      throw new HttpError(404, "NOT_FOUND", "Tournament not found.");
+    }
+    if (t.status === "DRAFT") {
+      throw new HttpError(
+        409,
+        "INVALID_STATE",
+        "Start the tournament before ordering matches.",
+      );
+    }
+
+    const validIds = new Set(
+      t.matches.filter((m) => m.status !== "BYE").map((m) => m.id),
+    );
+    if (
+      new Set(matchIds).size !== matchIds.length ||
+      matchIds.some((id) => !validIds.has(id))
+    ) {
+      throw new HttpError(
+        400,
+        "VALIDATION",
+        "Match order contains invalid or BYE match IDs.",
+      );
+    }
+
+    const orderPairs = Prisma.join(
+      matchIds.map((id, idx) => Prisma.sql`(${id}, ${idx + 1})`),
+    );
+    await tx.$executeRaw`
+      UPDATE "TournamentMatch" AS m
+      SET "playOrder" = v.ord::int
+      FROM (VALUES ${orderPairs}) AS v(id, ord)
+      WHERE m."id" = v.id AND m."tournamentId" = ${tournamentId}
+    `;
+
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
+  }, TX_OPTIONS);
+}
+
+export async function swapRoundOneSlots(
+  tournamentId: string,
+  from: { matchId: string; side: "A" | "B" },
+  to: { matchId: string; side: "A" | "B" },
+): Promise<TournamentDetail> {
+  return prisma.$transaction(async (tx) => {
+    const t = await tx.tournament.findUnique({
+      where: { id: tournamentId },
+      include: { matches: true },
+    });
+    if (!t) {
+      throw new HttpError(404, "NOT_FOUND", "Tournament not found.");
+    }
+    if (t.status !== "IN_PROGRESS") {
+      throw new HttpError(
+        409,
+        "INVALID_STATE",
+        "Bracket slots can only be arranged while tournament is In Progress.",
+      );
+    }
+
+    const matchMap = new Map(t.matches.map((m) => [m.id, { ...m }]));
+    const m1 = matchMap.get(from.matchId);
+    const m2 = matchMap.get(to.matchId);
+    if (!m1 || !m2) {
+      throw new HttpError(404, "NOT_FOUND", "Tournament match not found.");
+    }
+
+    for (const m of [m1, m2]) {
+      if (m.section !== "MAIN" || m.round !== 1) {
+        throw new HttpError(
+          409,
+          "INVALID_STATE",
+          "Only Round 1 matchups can be swapped.",
+        );
+      }
+      if ((m.status !== "READY" && m.status !== "BYE") || m.gameId !== null) {
+        throw new HttpError(
+          409,
+          "INVALID_STATE",
+          `Cannot swap ${m.label}: match has already started or finished.`,
+        );
+      }
+      if (m.nextMatchId) {
+        const next = matchMap.get(m.nextMatchId);
+        if (
+          next &&
+          (next.status === "IN_PROGRESS" ||
+            next.status === "COMPLETED" ||
+            next.gameId !== null)
+        ) {
+          throw new HttpError(
+            409,
+            "INVALID_STATE",
+            "Cannot swap: Round 2 match has already started.",
+          );
+        }
+      }
+    }
+
+    const val1 = from.side === "A" ? m1.teamAId : m1.teamBId;
+    const val2 = to.side === "A" ? m2.teamAId : m2.teamBId;
+
+    if (from.side === "A") m1.teamAId = val2;
+    else m1.teamBId = val2;
+
+    if (to.side === "A") m2.teamAId = val1;
+    else m2.teamBId = val1;
+
+    const affectedR1 = m1.id === m2.id ? [m1] : [m1, m2];
+    const maxPlayOrder = t.matches.reduce(
+      (max, m) => Math.max(max, m.playOrder ?? 0),
+      0,
+    );
+    let nextPlayOrder = maxPlayOrder + 1;
+
+    for (const m of affectedR1) {
+      let nextStatus: TournamentMatchStatus;
+      let nextWinner: string | null = null;
+      let nextOrder = m.playOrder;
+
+      if (m.teamAId && m.teamBId) {
+        nextStatus = "READY";
+        if (nextOrder == null) nextOrder = nextPlayOrder++;
+      } else if (m.teamAId || m.teamBId) {
+        nextStatus = "BYE";
+        nextWinner = m.teamAId ?? m.teamBId;
+        nextOrder = null;
+      } else {
+        nextStatus = "PENDING";
+        nextOrder = null;
+      }
+
+      await tx.tournamentMatch.update({
+        where: { id: m.id },
+        data: {
+          teamAId: m.teamAId,
+          teamBId: m.teamBId,
+          status: nextStatus,
+          winnerTeamId: nextWinner,
+          playOrder: nextOrder,
+        },
+      });
+
+      if (m.nextMatchId && m.nextMatchSlot) {
+        const next = matchMap.get(m.nextMatchId)!;
+        if (m.nextMatchSlot === "A") next.teamAId = nextWinner;
+        else next.teamBId = nextWinner;
+
+        const readyForR2 = Boolean(next.teamAId && next.teamBId);
+        await tx.tournamentMatch.update({
+          where: { id: next.id },
+          data: {
+            teamAId: next.teamAId,
+            teamBId: next.teamBId,
+            status: readyForR2 ? "READY" : "PENDING",
+          },
+        });
+      }
+    }
+
+    return loadTournamentDetail(tx, tournamentId, true, t.sessionId);
   }, TX_OPTIONS);
 }

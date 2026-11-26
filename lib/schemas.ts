@@ -257,7 +257,7 @@ export const tournamentTeamAddInput = z
 export const tournamentRandomizeInput = z.object({
   playerIds: z
     .array(z.string().min(1))
-    .min(4, "Select at least 4 players (2 teams)")
+    .min(2, "Select at least 2 players (1 team)")
     .refine((ids) => new Set(ids).size === ids.length, "Duplicate player selected")
     .refine((ids) => ids.length % 2 === 0, "Select an even number of players"),
   replaceExisting: z.boolean().optional().default(true),
@@ -290,6 +290,46 @@ export const tournamentWalkoverInput = z.object({
   winnerSide: z.enum(["A", "B"]),
 });
 
+export const tournamentTeamPatchInput = z
+  .object({
+    name: z.string().trim().max(50).nullable().optional(),
+    player1Id: z.string().min(1).optional(),
+    player2Id: z.string().min(1).optional(),
+  })
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.player1Id !== undefined ||
+      v.player2Id !== undefined,
+    "Provide at least one field to update",
+  )
+  .refine(
+    (v) => !v.player1Id || !v.player2Id || v.player1Id !== v.player2Id,
+    {
+      message: "Pick two different players for a doubles team",
+      path: ["player2Id"],
+    },
+  );
+
+export const tournamentMatchOrderInput = z.object({
+  matchIds: z.array(z.string().min(1)).min(1),
+});
+
+const bracketSlotRef = z.object({
+  matchId: z.string().min(1),
+  side: z.enum(["A", "B"]),
+});
+
+export const tournamentMatchSwapInput = z
+  .object({
+    from: bracketSlotRef,
+    to: bracketSlotRef,
+  })
+  .refine(
+    (v) => v.from.matchId !== v.to.matchId || v.from.side !== v.to.side,
+    "Select two different bracket slots to swap",
+  );
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordInput>;
 export type AdminCreateInput = z.infer<typeof adminCreateInput>;
@@ -316,8 +356,11 @@ export type ClubSettingsInput = z.infer<typeof clubSettingsInput>;
 export type TournamentCreateInput = z.infer<typeof tournamentCreateInput>;
 export type TournamentPatchInput = z.infer<typeof tournamentPatchInput>;
 export type TournamentTeamAddInput = z.infer<typeof tournamentTeamAddInput>;
+export type TournamentTeamPatchInput = z.infer<typeof tournamentTeamPatchInput>;
 export type TournamentRandomizeInput = z.infer<typeof tournamentRandomizeInput>;
 export type TournamentTeamsReorderInput = z.infer<typeof tournamentTeamsReorderInput>;
 export type TournamentMatchAssignInput = z.infer<typeof tournamentMatchAssignInput>;
 export type TournamentWalkoverInput = z.infer<typeof tournamentWalkoverInput>;
+export type TournamentMatchOrderInput = z.infer<typeof tournamentMatchOrderInput>;
+export type TournamentMatchSwapInput = z.infer<typeof tournamentMatchSwapInput>;
 

@@ -310,6 +310,7 @@ export interface TournamentMatch {
   section: BracketSection;
   round: number;
   slot: number;
+  playOrder: number | null;
   label: string;
   status: TournamentMatchStatus;
   teamAId: string | null;

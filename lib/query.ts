@@ -23,6 +23,7 @@ export const queryKeys = {
     ["treasury", "summary", params ?? {}] as const,
   treasuryCategories: ["treasury", "categories"] as const,
   tournaments: ["tournaments"] as const,
+  tournamentsListPrefix: ["tournaments", "list"] as const,
   tournamentsList: (params?: { sessionId?: string; status?: string }) =>
     ["tournaments", "list", params ?? {}] as const,
   tournamentDetail: (id: string) => ["tournaments", "detail", id] as const,

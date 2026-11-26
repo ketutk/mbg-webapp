@@ -1,13 +1,15 @@
 # MBG — Software Requirements Document (as-built)
 
 **Product:** MBG · Minggu Badminton Guys — Fair Match Planner
-**Document status:** Updated to match the repository snapshot `mbg-webapp-main` (verified 2026-11-12). This replaces the earlier "SRD, Coding Rules & Implementation Plan" that described the v2 *plan*. All eight implementation phases of that plan are done, so this document describes the system **as it is built**, plus the coding rules the code actually follows.
+**Document status:** Updated to match the repository snapshot (verified 2026-11-26). Describes the system **as it is built**, plus the coding rules the code actually follows.
 
 Related documents in the repo:
 
 | File | Purpose |
 |------|---------|
 | `SRD.md` (this file) | Requirements, architecture, folder structure, coding rules |
+| `TOURNAMENTS_PLAN.md` | Architecture & design for session-backed Tournaments and 1–5 Player Tiering |
+| `TOURNAMENT_ENHANCEMENT_PLAN.md` | Flexible draft pairing, bracket arrangement (`playOrder` + R1 swap), and query/cache optimizations |
 | `PERFORMANCE_PLAN.md` | Plan to improve load performance (frame-first loading); written from the 2026-11-12 Lighthouse runs |
 | `AGENTS.md` | Auto-managed agent rules from `next dev`. Says this Next.js version differs from older versions: read `node_modules/next/dist/docs/` first |
 | `REFACTOR_PLAN.md`, `REFACTOR_NOTES.md` | History of the modularization + Zustand refactor and the oddities it deliberately preserved (summarised in §15) |
@@ -37,9 +39,9 @@ Related documents in the repo:
 
 ## 1. Purpose & scope
 
-MBG is a shared planner for a weekly badminton group. Organisers create **sessions** (a game day) with a roster, run **matches** on numbered **courts** with a **queue**, track a **games-played checklist** so everyone gets equal court time, and keep a **club treasury**. Players (visitors) can open a session read-only to see who is on court, what is queued next, and how many games each person has played.
+MBG is a shared planner for a weekly badminton group. Organisers create **sessions** (a game day) with a roster, run **matches** on numbered **courts** with a **queue**, run session-backed **tournaments** with 1–5 player skill tiering (where eliminated pairs automatically return to casual open-play), track a **games-played checklist** so everyone gets equal court time, and keep a **club treasury**. Players (visitors) can open a session or tournament read-only to see who is on court, what is queued next, live brackets, and how many games each person has played.
 
-In scope: public read-only view, organiser accounts (Admin / Superadmin), sessions + roster, courts + queue + locked checklist, fairness-based recommendation, treasury, admin-account management, PostgreSQL persistence.
+In scope: public read-only view, organiser accounts (Admin / Superadmin), sessions + roster + payment & tier checklists, courts + queue + locked checklist, fairness-based recommendation, session-backed doubles tournaments, treasury, admin-account management, PostgreSQL persistence.
 
 Out of scope: player accounts, online payments, notifications, multi-club tenancy, i18n (UI is English), file uploads, websockets (the client polls).
 
@@ -65,6 +67,9 @@ Out of scope: player accounts, online payments, notifications, multi-club tenanc
 | Open the full session (detail, checklist, history, recommendation) | ❌ | ✅ | ✅ |
 | Assign match to court/queue; edit players; finish; promote; reorder; delete; clear all matches | ❌ | ✅ | ✅ |
 | Tick/untick checklist; lock/unlock a column | ❌ | ✅ | ✅ |
+| View live/completed tournaments for open sessions | ✅ | ✅ | ✅ |
+| Create/edit tournament; manage draft pairs & 1–5 player tiers; start/reset/arrange bracket; assign/walkover/undo tournament matches | ❌ | ✅ | ✅ |
+| Delete tournament | ❌ | ❌ | ✅ |
 | View treasury; add entry (income / spent) | ❌ | ✅ | ✅ |
 | Edit / soft-delete treasury entry | ❌ | ❌ | ✅ |
 | Add admin; soft-delete admin; reset admin password | ❌ | ❌ | ✅ |
@@ -194,6 +199,19 @@ Treasury is **club-wide** (not per session). Admin and Superadmin only.
 | FR-RND-3 | SEO is for `/` only: root metadata, Open Graph/Twitter, JSON-LD (`WebApplication`), `robots.ts`, `sitemap.ts` (only `/`), `manifest.ts`. `/treasury` and `/admins` export `robots: { index: false, follow: false }`; `robots.ts` disallows `/api/`, `/treasury`, `/admins`. |
 | FR-RND-4 | While data loads, frame-first shaped skeletons (`SkeletonRegion` with `aria-busy="true"` and `SkeletonBar` / `skelCircle` inside static titles and card headers) are rendered immediately, including in `AppHeader` auth slots. |
 
+### 3.10 Tournaments & Player Tiering (`FR-TRN`)
+
+| ID | Requirement |
+|----|-------------|
+| FR-TRN-1 | **Session-backed tournaments:** Every `Tournament` links to a `Session` (`1+` tournaments per session supported). Creating a tournament can link an existing `OPEN` session or create a new session atomically. |
+| FR-TRN-2 | **Persistent 1–5 Player Tiering (Admin/Superadmin only):** Players can be rated `1` (Beginner) to `5` (Elite) in Draft setup or the Session Payment & Tier Checklist (`PATCH /sessions/:id/players/:playerId`). Ratings persist in `PlayerTier` by `nameKey` and auto-fill future sessions; tiers are omitted from public DTOs. |
+| FR-TRN-3 | **Flexible Draft Pairing:** Organisers can create fixed doubles pairs manually (with optional custom team name), edit/rename pairs or swap players between draft teams (`PATCH /tournaments/:id/teams/:teamId`), or run **Balanced Pairs (`High + Low`)** randomization (`POST /tournaments/:id/teams/randomize`, supporting both `replaceExisting: true` and `replaceExisting: false` to auto-pair remaining unassigned players). Teams can be reordered, shuffled, or auto-seeded by combined tier. |
+| FR-TRN-4 | **Single Elimination Bracket & BYEs:** Starting a tournament (`>= 2` teams) generates a seeded Single Elimination bracket in a single batched `createMany`, automatically assigning Round 1 `BYE`s to top seeds and advancing them to Round 2, with optional 3rd-place playoff (`hasThirdPlace`). |
+| FR-TRN-5 | **Bracket Arrangement (`IN_PROGRESS`):** Organisers can reorder match `playOrder` (`PATCH /tournaments/:id/matches/order`) and swap unstarted Round 1 slots including `BYE`s (`POST /tournaments/:id/matches/swap`), recalculating Round 2 readiness atomically. |
+| FR-TRN-6 | **1:1 Court & Leaderboard Integration:** Assigning a `READY` bracket match (`POST /tournaments/:id/matches/:matchId/assign`) creates a real `Game` in the linked `Session` (respecting `COURT_OCCUPIED` and `PLAYER_BUSY`). Tournament games count toward session play totals and leaderboards, tagged with a `🏆` badge. |
+| FR-TRN-7 | **Unified Finish & Automatic Return to Casual Play:** Finishing a tournament match from either `/tournaments/[id]` or `/sessions/[id]` (`finishOnCourtGame()`) advances the winner in one transaction and marks the losing team `ELIMINATED` (unless routed to the 3rd-place match). On `/sessions/[id]`, `recommend()` excludes `ACTIVE` tournament players by default so eliminated pairs immediately flow back into casual courts. |
+| FR-TRN-8 | **Walkover, Undo & Reset:** Organisers can award walkovers (`POST .../walkover`), undo completed matches if downstream matches haven't started (`POST .../undo`), or reset an unstarted bracket back to `DRAFT` (`POST .../reset`). **Superadmin** only can delete a tournament. |
+
 ---
 ## 4. Non-functional requirements
 
@@ -245,6 +263,8 @@ mbg-webapp-main/
 │  │  ├─ page.tsx                    "/"              → <HomeApp/>          (indexed)
 │  │  ├─ sessions/page.tsx           "/sessions"      → <MatchApp/>         (indexed)
 │  │  ├─ sessions/[id]/page.tsx      "/sessions/[id]" → <SessionDetailApp/> (Suspense wrapped)
+│  │  ├─ tournaments/page.tsx        "/tournaments"      → <TournamentList/>      (indexed)
+│  │  ├─ tournaments/[id]/page.tsx   "/tournaments/[id]" → <TournamentDetailApp/> (Suspense wrapped)
 │  │  ├─ leaderboards/page.tsx       "/leaderboards"      → <LeaderboardsApp/>
 │  │  ├─ leaderboards/[id]/page.tsx  "/leaderboards/[id]" → <SessionLeaderboardApp/> (Suspense wrapped)
 │  │  ├─ treasury/page.tsx           "/treasury"      → <TreasuryApp/>      (noindex)
@@ -255,6 +275,9 @@ mbg-webapp-main/
 │     ├─ sessions/route.ts
 │     ├─ sessions/[id]/route.ts · …/summary · …/players · …/games · …/queue  (each /route.ts)
 │     ├─ games/[id]/route.ts · …/start · …/finish · …/lock · …/players/[playerId]  (each /route.ts)
+│     ├─ tournaments/route.ts · tournaments/[id]/route.ts · …/start · …/reset ·
+│     │  …/teams · …/teams/randomize · …/teams/[teamId] ·
+│     │  …/matches/order · …/matches/swap · …/matches/[matchId]/{assign,walkover,undo}
 │     └─ treasury/route.ts · treasury/entries/route.ts · treasury/entries/[id]/route.ts
 │
 ├─ components/                       "use client" UI, grouped by feature. PascalCase.tsx, named exports.
@@ -278,18 +301,22 @@ mbg-webapp-main/
 │  ├─ treasury/                      TreasuryApp (route root) · TreasuryContent · TreasuryHero · TreasuryKpiCards ·
 │  │                                 MonthlyCashflowCard · TransactionsCard · TransactionsTable · TreasuryFilterToolbar ·
 │  │                                 TreasuryEntryDialog · useTreasuryFilters.ts · period.ts
+│  ├─ tournaments/                   TournamentList · TournamentDetailApp · TournamentCreateDialog ·
+│  │                                 TournamentDraftSetup · TierBadgeSelect · TournamentBracket ·
+│  │                                 TournamentMatchCard · TournamentAssignDialog · TournamentTeamsTable
 │  └─ admins/                        AdminsApp (route root) · AdminsContent · AdminsTable · AdminDialog
 │
 ├─ lib/                              Logic. Client-safe files at top level; server-only code in lib/server.
 │  ├─ types.ts                       Shared TypeScript contracts (client + server)
 │  ├─ schemas.ts                     Zod schemas + inferred input types (client + server, no server-only imports)
 │  ├─ match.ts                       Pure fairness/court/queue logic (no React, no window)
+│  ├─ tournament.ts                  Pure bracket generator (BYEs, seeding) + Balanced Pairs tier randomization
 │  ├─ api.ts                         fetch wrapper + ApiError
 │  ├─ query.ts                       Shared QueryClient + typed `queryKeys`
 │  ├─ auth.ts                        Client: useAuth(), login(), logout(), changePassword()
 │  ├─ store.ts                       Barrel: re-exports hooks + actions from lib/data/* (+ todayISO)
 │  ├─ data/                          queries.ts (useQuery hooks) · query-options.ts (shared prefetch options + mbg-boot-v1) ·
-│  │                                 session-actions · match-actions · treasury-actions · admin-actions ·
+│  │                                 session-actions · match-actions · tournament-actions · treasury-actions · admin-actions ·
 │  │                                 current-session (localStorage id) · parse-names
 │  ├─ stores/ui-store.ts             Zustand: toast, drawer, login/password/new-session dialog flags
 │  ├─ ui.ts                          Shared Tailwind class strings (btn, pill, card, field…, cx)
@@ -300,7 +327,7 @@ mbg-webapp-main/
 │     ├─ auth.ts                     Cookie/token/lockout logic + HttpError
 │     ├─ password.ts                 bcrypt hash/verify
 │     ├─ dto.ts                      Prisma row → DTO mappers (never return Prisma models)
-│     └─ sessions.ts · games.ts · treasury.ts · admins.ts    Business rules (services)
+│     └─ sessions.ts · games.ts · tournaments.ts · treasury.ts · admins.ts    Business rules (services)
 │
 ├─ prisma/                           schema.prisma · seed.ts · migrations/ (init, init2 = SessionStatus) · migration_lock.toml
 ├─ public/                           logo.jpg (header, icons, OG image); default create-next-app SVGs (unused)
@@ -442,7 +469,7 @@ model TreasuryEntry {
 }
 ```
 
-Migrations: `20261108151400_init` (full schema), `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`), `20261117081500_add_game_scores` (adds `scoreA`, `scoreB` on `Game`), `20261119084500_add_player_paid` (adds `paid` on `Player`), and `20261119094500_add_club_settings` (adds singleton `ClubSettings` table for Home page club info and WhatsApp/AYO links).
+Migrations: `20261108151400_init` (full schema), `20261110022640_init2` (adds `SessionStatus`, `Session.status`, index `(status, date)`), `20261117081500_add_game_scores` (adds `scoreA`, `scoreB` on `Game`), `20261119084500_add_player_paid` (adds `paid` on `Player`), `20261119094500_add_club_settings` (adds `ClubSettings`), `20261119111500_add_treasury_categories` (adds `TreasuryCategory` + `TreasuryEntry.categoryId`), `20261123023542_add_tournaments_and_player_tiers` (adds `PlayerTier`, `Player.tier`, `Tournament`, `TournamentTeam`, `TournamentMatch`), and `20261126062543_add_tournament_match_play_order` (adds `TournamentMatch.playOrder`).
 
 ### Derived rules the schema relies on
 
@@ -534,6 +561,7 @@ Base `/api`. JSON in and out. Every response carries `Cache-Control: no-store`. 
 | `GET /sessions/:id/summary` | P | → `{ summary }`; closed + visitor → 403 `SESSION_CLOSED` |
 | `PUT /sessions/:id/players` | A | `rosterInput` (diff by name, one transaction) → `{ session }` |
 | `PUT /sessions/:id/players/:playerId` | A | `playerPaidInput` (`{ paid }`) → `{ player }` |
+| `PATCH /sessions/:id/players/:playerId` | A | `playerTierInput` (`{ tier: 1..5 \| null }`) → `{ player }` (persists to `PlayerTier`) |
 | `POST /sessions/:id/games` | A | `assignInput` → 201 `{ game }` (locked on creation) |
 | `DELETE /sessions/:id/games` | A | clear all matches → `{ ok }` |
 | `PUT /sessions/:id/queue` | A | `queueOrderInput` → `{ session }` |
@@ -553,6 +581,23 @@ Base `/api`. JSON in and out. Every response carries `Cache-Control: no-store`. 
 | `POST /treasury/entries` | A | `treasuryInput` → 201 `{ entry }` |
 | `PATCH /treasury/entries/:id` | S | `treasuryPatchInput` → `{ entry }` |
 | `DELETE /treasury/entries/:id` | S | soft delete → `{ ok }` |
+| `GET /tournaments` | P | query `sessionId?, status?` → `{ tournaments }` (visitors: `IN_PROGRESS`/`COMPLETED` on `OPEN` sessions) |
+| `POST /tournaments` | A | `tournamentCreateInput` → 201 `{ tournament }` |
+| `GET /tournaments/:id` | P | → `{ tournament }` (`tier`/`tierSum` omitted for visitors; 403 on `DRAFT` or closed session) |
+| `PATCH /tournaments/:id` | A | `tournamentPatchInput` → `{ tournament }` |
+| `DELETE /tournaments/:id` | S | → `{ ok }` |
+| `POST /tournaments/:id/teams` | A | `tournamentTeamAddInput` → 201 `{ tournament }` |
+| `PATCH /tournaments/:id/teams` | A | `tournamentTeamsReorderInput` (`reorder` \| `shuffle` \| `seedByTier`) → `{ tournament }` |
+| `POST /tournaments/:id/teams/randomize` | A | `tournamentRandomizeInput` (`Balanced Pairs`, `replaceExisting?`) → `{ tournament }` |
+| `PATCH /tournaments/:id/teams/:teamId` | A | `tournamentTeamPatchInput` (rename / swap players) → `{ tournament }` |
+| `DELETE /tournaments/:id/teams/:teamId` | A | removes team + compacts seeds → `{ tournament }` |
+| `POST /tournaments/:id/start` | A | generates bracket + BYEs → `{ tournament }` |
+| `POST /tournaments/:id/reset` | A | resets unstarted bracket to `DRAFT` → `{ tournament }` |
+| `PATCH /tournaments/:id/matches/order` | A | `tournamentMatchOrderInput` (`{ matchIds }`) → `{ tournament }` |
+| `POST /tournaments/:id/matches/swap` | A | `tournamentMatchSwapInput` (swap Round 1 slots) → `{ tournament }` |
+| `POST /tournaments/:id/matches/:matchId/assign` | A | `tournamentMatchAssignInput` (session court or queue) → `{ tournament }` |
+| `POST /tournaments/:id/matches/:matchId/walkover` | A | `tournamentWalkoverInput` (`{ winnerSide }`) → `{ tournament }` |
+| `POST /tournaments/:id/matches/:matchId/undo` | A | reverts completed match if downstream hasn't started → `{ tournament }` |
 
 **How `route()` runs (`lib/server/http.ts`):** `await connection()` (so Next never tries to prerender the handler under `cacheComponents`) → CSRF guard → resolve user from cookie → role check (`roles` is mandatory; `"public"` must be explicit) → parse body with Zod (400 on failure) → handler → map `HttpError` / unknown errors to the error shape.
 
@@ -601,6 +646,8 @@ Hooks always stay above early returns in the same component; filter state is own
 | `useSessionSummary(id)` | `["sessions","summary",id]` | `GET /sessions/:id/summary` | 10 s | enabled when `id` set |
 | `useSessionDetail(id)` | `["sessions","detail",id]` | `GET /sessions/:id` | 5 s | organisers only |
 | `useTreasury(params)` | `["treasury","summary",params]` | `GET /treasury` | none | `keepPreviousData` |
+| `useTournamentsList(params)` | `["tournaments","list",params]` | `GET /tournaments` | 10 s | `keepPreviousData` |
+| `useTournamentDetail(id)` | `["tournaments","detail",id]` | `GET /tournaments/:id` | 8 s (`IN_PROGRESS` only) | disabled in `DRAFT` & `COMPLETED` |
 | `useAdmins()` | `["admins","list"]` | `GET /admins` | none | superadmin |
 
 All polling uses `refetchIntervalInBackground: false` (paused when the tab is hidden).
@@ -638,6 +685,8 @@ Zustand is for UI state only. Server data never goes into Zustand.
 | `/` | `HomeApp` | Everyone; split hero + DB-backed community pillars, live sessions & leaderboards hub, 3-step guide, WhatsApp & AYO join banner | indexed |
 | `/sessions` | `MatchApp` | Everyone; open-session cards (visitors) or sessions table (organisers) | indexed |
 | `/sessions/[id]` | `SessionDetailApp` | Everyone; `VisitorView` (visitors) or `AdminSessionContainer` (organisers) | indexed |
+| `/tournaments` | `TournamentList` | Everyone; live/completed tournaments (visitors) or all incl. drafts + create (organisers) | indexed |
+| `/tournaments/[id]` | `TournamentDetailApp` | Everyone; live/completed bracket or organiser draft setup & bracket management | indexed |
 | `/leaderboards` | `LeaderboardsApp` | Everyone; session picker navigating to `/leaderboards/[id]` | indexed |
 | `/leaderboards/[id]` | `SessionLeaderboardApp` | Everyone; per-session rankings counted by winning matches (tie-breaker: fewest losses, name) | indexed |
 | `/treasury` | `TreasuryApp` | Organisers (visitors see "Please log in to view treasury" + Admin login button) | `noindex` |
@@ -646,8 +695,8 @@ Zustand is for UI state only. Server data never goes into Zustand.
 ### 11.2 Header and navigation (`AppHeader`, `MobileBottomNav`)
 
 - Sticky header (`sticky top-0`): left = logo (`next/image`, priority) + "Minggu Badminton Guys / FAIR MATCH PLANNER", linking to `/`. Auto-fades out when scrolling down (`> 8 px`) and reappears when scrolling up (`> 6 px`) or near the top (`≤ 16 px`).
-- **Desktop (> 860 px):** sync status ("Live" dot / "Syncing…" spinner from `useIsFetching`), nav links (`Home`, `Sessions`, `Leaderboards`, plus `Treasury` and `Admins` when logged in), then either "Admin login" (logged out) or username + role pill, **Password**, **＋ New session** (organisers, on `/sessions`), **Log out** (logged in).
-- **Tablet/phone (≤ 860 px):** compact top bar with `SyncStatus` plus **＋ New** (organisers, on `/sessions`) or **Admin login** (logged out), paired with a fixed floating bottom navigation bar (`MobileBottomNav`). When visible items exceed 4 (logged-in admins with 5 items), renders the first 3 items (`Home`, `Sessions`, `Leaderboards`) plus a **More** button that opens an upward popover containing `Treasury`, `Admins`, and account actions (`＋ New session`, `Password`, `Log out`).
+- **Desktop (> 860 px):** sync status ("Live" dot / "Syncing…" spinner from `useIsFetching`), nav links (`Home`, `Sessions`, `Tournaments`, `Leaderboards`, plus `Treasury` and `Admins` when logged in), then either "Admin login" (logged out) or username + role pill, **Password**, **＋ New session** (organisers, on `/sessions`), **Log out** (logged in).
+- **Tablet/phone (≤ 860 px):** compact top bar with `SyncStatus` plus **＋ New** (organisers, on `/sessions`) or **Admin login** (logged out), paired with a fixed floating bottom navigation bar (`MobileBottomNav`). When visible items exceed 4, renders the first 3 items (`Home`, `Sessions`, `Tournaments`) plus a **More** button that opens an upward popover containing `Leaderboards`, `Treasury`, `Admins`, and account actions (`＋ New session`, `Password`, `Log out`).
 
 ### 11.3 `/sessions` and `/sessions/[id]` for visitors
 
@@ -658,11 +707,12 @@ Zustand is for UI state only. Server data never goes into Zustand.
 
 1. **`/sessions` (`SessionsDirectory`)**: Hero ("Organiser dashboard" / "Match sessions"), card with open/closed pills, filter toolbar (period, status, name search), table (view detail link to `/sessions/[id]`, close/reopen, delete for superadmin), pagination (5 / 10 / 25 / 50 rows).
 2. **`/sessions/[id]` (`AdminSessionContainer` → `SessionView`)**:
-   1. `SessionHeaderBar`: date + status pill, session name (h1), *← All sessions*, *Leaderboard*, *Close/Reopen session*, *History · n*, *Edit players*, *Session settings*; **superadmin only:** *Delete*.
-   2. **Courts** (`CourtBoard`): `CourtCard` grid (2 cols, 1 on mobile). Occupied: Court N, Team A vs Team B, "Playing since hh:mm", *Edit players*, *✓ Finish match*. Empty (dashed): *＋ Assign players* and *▶ Play next in queue* when the queue has items.
-   3. **Queue** (`QueuePanel`): ordered list with "Queued" pill, ▲ ▼, Edit, ✕ (confirm), *＋ Add to queue*.
-   4. Two-column area (1.7fr / 1fr; stacked on mobile): **Games played** (`PlayerGrid`, left) and **Next match** (`NextMatch`, right, sticky on desktop; first on mobile) with *Shuffle*, *Assign to court*, *Add to queue*, and the waiting list.
-   5. **Payment checklist** (`PaymentChecklistCard`): organiser-only card below the player grid with Paid/Unpaid filter pills (`All`, `Unpaid`, `Paid`), `{paid}/{total} paid` counter, and per-player payment checkboxes (`PUT /api/sessions/:id/players/:playerId`).
+   1. `SessionHeaderBar`: date + status pill, session name (h1), *← All sessions*, *Leaderboard*, *Close/Reopen session*, *History · n*, *Edit players*, *Session settings*, *🏆 New tournament*; **superadmin only:** *Delete*.
+   2. **Linked Tournaments Banner** (when 1+ tournaments link to this session): quick links to each tournament bracket with status pill and active-player count.
+   3. **Courts** (`CourtBoard`): `CourtCard` grid (2 cols, 1 on mobile). Occupied: Court N, Team A vs Team B, `🏆` match tag if tournament-linked, "Playing since hh:mm", *Edit players*, *✓ Finish match*. Empty (dashed): *＋ Assign players* and *▶ Play next in queue* when the queue has items.
+   4. **Queue** (`QueuePanel`): ordered list with "Queued" pill, ▲ ▼, Edit, ✕ (confirm), *＋ Add to queue*.
+   5. Two-column area (1.7fr / 1fr; stacked on mobile): **Games played** (`PlayerGrid`, left) and **Next match** (`NextMatch`, right, sticky on desktop; first on mobile) with *Exclude active tournament players* toggle (default ON when a linked tournament is `IN_PROGRESS`), *Shuffle*, *Assign to court*, *Add to queue*, and the waiting list.
+   6. **Payment & Tier checklist** (`PaymentChecklistCard`): organiser-only card below the player grid with Paid/Unpaid filter pills (`All`, `Unpaid`, `Paid`), `{paid}/{total} paid` counter, per-player payment checkboxes (`PUT /api/sessions/:id/players/:playerId`), and inline 1–5 skill tier selectors (`PATCH /api/sessions/:id/players/:playerId`).
 
 ### 11.5 `/treasury`
 

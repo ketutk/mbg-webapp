@@ -326,29 +326,48 @@ export function toTournamentListItemDTO(
   };
 }
 
+export interface TournamentSessionAggregates {
+  gameCountMap: ReadonlyMap<string, number>;
+  occupiedCourts: number[];
+  busyPlayerIds: string[];
+}
+
 export function toTournamentDetailDTO(
   t: PrismaTournament & {
     session: PrismaSession & {
       players: PrismaPlayer[];
-      games: GameWithPlayers[];
+      games?: GameWithPlayers[];
     };
     teams: TournamentTeamWithPlayers[];
     matches: TournamentMatchWithGame[];
   },
   includeTiers: boolean,
+  aggregates?: TournamentSessionAggregates,
 ): TournamentDetail {
-  const gameCountMap = new Map<string, number>();
-  const occupiedCourts: number[] = [];
-  const busyPlayerIds = new Set<string>();
+  let gameCountMap: ReadonlyMap<string, number>;
+  let occupiedCourts: number[];
+  let busyPlayerIds: string[];
 
-  for (const g of t.session.games) {
-    if (g.status === "ON_COURT") {
-      if (g.courtNumber != null) occupiedCourts.push(g.courtNumber);
-      for (const gp of g.players) busyPlayerIds.add(gp.playerId);
+  if (aggregates) {
+    gameCountMap = aggregates.gameCountMap;
+    occupiedCourts = [...aggregates.occupiedCourts].sort((a, b) => a - b);
+    busyPlayerIds = [...aggregates.busyPlayerIds];
+  } else {
+    const counts = new Map<string, number>();
+    const occupied: number[] = [];
+    const busy = new Set<string>();
+    for (const g of t.session.games ?? []) {
+      if (g.status === "ON_COURT") {
+        if (g.courtNumber != null) occupied.push(g.courtNumber);
+        for (const gp of g.players) busy.add(gp.playerId);
+      }
+      for (const gp of g.players) {
+        counts.set(gp.playerId, (counts.get(gp.playerId) ?? 0) + 1);
+      }
     }
-    for (const gp of g.players) {
-      gameCountMap.set(gp.playerId, (gameCountMap.get(gp.playerId) ?? 0) + 1);
-    }
+    gameCountMap = counts;
+    occupiedCourts = occupied.sort((a, b) => a - b);
+    busyPlayerIds = [...busy];
   }
 
   const sessionPlayers = [...t.session.players]
@@ -405,6 +424,7 @@ export function toTournamentDetailDTO(
       section: m.section,
       round: m.round,
       slot: m.slot,
+      playOrder: m.playOrder ?? null,
       label: m.label ?? `Round ${m.round} · ${m.slot}`,
       status: m.status,
       teamAId: m.teamAId,
@@ -444,8 +464,8 @@ export function toTournamentDetailDTO(
       date: toDateStr(t.session.date),
       courtCount: t.session.courtCount,
       status: t.session.status,
-      occupiedCourts: occupiedCourts.sort((a, b) => a - b),
-      busyPlayerIds: [...busyPlayerIds],
+      occupiedCourts,
+      busyPlayerIds,
     },
     sessionPlayers,
     teams,

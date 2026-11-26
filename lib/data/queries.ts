@@ -199,7 +199,8 @@ export function useTournamentDetail(tournamentId: string | null) {
       return tournament;
     },
     enabled: Boolean(tournamentId),
-    refetchInterval: 5_000,
+    refetchInterval: (q) =>
+      q.state.data?.status === "IN_PROGRESS" ? 8_000 : false,
     refetchIntervalInBackground: false,
   });
 
