@@ -61,6 +61,7 @@ model AuthToken {
 
 model Session {
   id          String        @id @default(cuid())
+  slug        String        @unique
   name        String
   date        DateTime      @db.Date
   courtCount  Int           @default(1)
@@ -206,6 +207,7 @@ enum BracketSection {
 
 model Tournament {
   id              String            @id @default(cuid())
+  slug            String            @unique
   sessionId       String
   name            String
   format          TournamentFormat  @default(SINGLE_ELIMINATION)

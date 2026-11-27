@@ -43,11 +43,15 @@ function rankPlayersWithTies(players: SessionSummary["players"]) {
   return out;
 }
 
-export default function SessionLeaderboardApp() {
-  const params = useParams<{ id: string }>();
-  const sessionId = params.id;
+export default function SessionLeaderboardApp({
+  sessionId: propSessionId,
+}: {
+  sessionId?: string;
+} = {}) {
+  const params = useParams<{ slug?: string }>();
+  const sessionId = propSessionId ?? params.slug ?? "";
   const { data: summary, error, loading, fetching } = useSessionSummary(
-    sessionId ?? null,
+    sessionId || null,
   );
 
   if (!sessionId || loading) {
@@ -109,7 +113,7 @@ export default function SessionLeaderboardApp() {
               Syncing…
             </span>
           )}
-          <Link href={`/sessions/${summary.id}`} className={btn("primary")}>
+          <Link href={`/sessions/${summary.slug}`} className={btn("primary")}>
             View session →
           </Link>
           <Link href="/leaderboards" className={btn("light")}>

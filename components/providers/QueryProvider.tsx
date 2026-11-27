@@ -6,7 +6,6 @@ import {
   authMeOptions,
   ORGANISER_LIST_PARAMS,
   readBootHint,
-  sessionDetailOptions,
   sessionsPageOptions,
   VISITOR_LIST_PARAMS,
 } from "@/lib/data/query-options";
@@ -24,11 +23,6 @@ if (typeof window !== "undefined") {
       );
     } else {
       void queryClient.prefetchQuery(sessionsPageOptions(VISITOR_LIST_PARAMS));
-    }
-  } else if (pathname.startsWith("/sessions/")) {
-    const id = pathname.slice("/sessions/".length).split("/")[0];
-    if (id && hint?.role === "organiser") {
-      void queryClient.prefetchQuery(sessionDetailOptions(id));
     }
   }
 }

@@ -1,8 +1,9 @@
 import "server-only";
 import { randomUUID } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import { buildBaseSlug, pickUniqueSlug } from "@/lib/slug";
 import { prisma } from "./db";
-import { fromDateStr, toTournamentDetailDTO, toTournamentListItemDTO } from "./dto";
+import { fromDateStr, toDateStr, toTournamentDetailDTO, toTournamentListItemDTO } from "./dto";
 import { HttpError } from "./http";
 import {
   generateSingleEliminationBracket,
@@ -305,8 +306,22 @@ export async function createTournament(
         : [];
       const tierMap = new Map(savedTiers.map((t) => [t.nameKey, t.tier]));
 
+      const baseSessionSlug = buildBaseSlug(
+        input.createSession.name,
+        input.createSession.date,
+      );
+      const existingSessionSlugs = await tx.session.findMany({
+        where: { slug: { startsWith: baseSessionSlug } },
+        select: { slug: true },
+      });
+      const sessionSlug = pickUniqueSlug(
+        baseSessionSlug,
+        existingSessionSlugs.map((s) => s.slug),
+      );
+
       const createdSession = await tx.session.create({
         data: {
+          slug: sessionSlug,
           name: input.createSession.name,
           date: fromDateStr(input.createSession.date),
           courtCount: input.createSession.courtCount,
@@ -338,8 +353,19 @@ export async function createTournament(
       (c) => c >= 1 && c <= session.courtCount,
     );
 
+    const baseSlug = buildBaseSlug(input.name, toDateStr(session.date));
+    const existingSlugs = await tx.tournament.findMany({
+      where: { slug: { startsWith: baseSlug } },
+      select: { slug: true },
+    });
+    const slug = pickUniqueSlug(
+      baseSlug,
+      existingSlugs.map((t) => t.slug),
+    );
+
     const created = await tx.tournament.create({
       data: {
+        slug,
         name: input.name,
         sessionId: session.id,
         hasThirdPlace: input.hasThirdPlace ?? false,

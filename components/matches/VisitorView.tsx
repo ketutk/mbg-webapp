@@ -99,7 +99,7 @@ export function VisitorView({
           <h1 className={h1}>{summary.name}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link href={`/leaderboards/${summary.id}`} className={btn("primary")}>
+          <Link href={`/leaderboards/${summary.slug}`} className={btn("primary")}>
             Leaderboard
           </Link>
           <button

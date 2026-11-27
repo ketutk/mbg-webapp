@@ -8,11 +8,15 @@ import { AdminSessionContainer } from "./admin/AdminSessionContainer";
 import { VisitorView } from "./VisitorView";
 import { VisitorViewSkeleton } from "./VisitorViewSkeleton";
 
-export default function SessionDetailApp() {
-  const params = useParams<{ id: string }>();
+export default function SessionDetailApp({
+  sessionId: propSessionId,
+}: {
+  sessionId?: string;
+} = {}) {
+  const params = useParams<{ slug?: string }>();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const sessionId = params.id;
+  const sessionId = propSessionId ?? params.slug ?? "";
 
   useEffect(() => {
     if (sessionId) selectSession(sessionId);

@@ -99,6 +99,7 @@ export interface Game {
 
 export interface Session {
   id: string;
+  slug: string;
   name: string;
   /** yyyy-mm-dd */
   date: string;
@@ -111,6 +112,7 @@ export interface Session {
 
 export interface SessionListItem {
   id: string;
+  slug: string;
   name: string;
   /** yyyy-mm-dd */
   date: string;
@@ -157,6 +159,7 @@ export interface PublicGame {
 
 export interface SessionSummary {
   id: string;
+  slug: string;
   name: string;
   /** yyyy-mm-dd */
   date: string;
@@ -330,11 +333,13 @@ export interface TournamentMatch {
 
 export interface TournamentListItem {
   id: string;
+  slug: string;
   name: string;
   format: TournamentFormat;
   status: TournamentStatus;
   hasThirdPlace: boolean;
   sessionId: string;
+  sessionSlug: string;
   sessionName: string;
   sessionDate: string;
   sessionStatus: SessionStatus;
@@ -355,6 +360,7 @@ export interface TournamentSessionPlayer {
 
 export interface TournamentDetail {
   id: string;
+  slug: string;
   name: string;
   format: TournamentFormat;
   status: TournamentStatus;
@@ -362,6 +368,7 @@ export interface TournamentDetail {
   preferredCourts: number[];
   session: {
     id: string;
+    slug: string;
     name: string;
     date: string;
     courtCount: number;

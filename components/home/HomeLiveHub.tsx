@@ -58,7 +58,7 @@ export function HomeLiveHub({ isOrganiser }: { isOrganiser: boolean }) {
               {openSessions.slice(0, 2).map((session) => (
                 <Link
                   key={session.id}
-                  href={`/sessions/${session.id}`}
+                  href={`/sessions/${session.slug}`}
                   className="group flex items-center justify-between gap-3 rounded-xl border border-[#e3f0fb] bg-[#f7fbff] px-3.5 py-2.5 no-underline transition-colors hover:border-[#b9dbf7] hover:bg-[#eff8ff]"
                 >
                   <div className="min-w-0">
@@ -119,7 +119,7 @@ export function HomeLiveHub({ isOrganiser }: { isOrganiser: boolean }) {
 
           {firstOpen && (
             <Link
-              href={`/leaderboards/${firstOpen.id}`}
+              href={`/leaderboards/${firstOpen.slug}`}
               className="group mt-3 flex items-center justify-between gap-3 rounded-xl border border-[#e3f0fb] bg-[#f7fbff] px-3.5 py-2.5 no-underline transition-colors hover:border-[#b9dbf7] hover:bg-[#eff8ff]"
             >
               <div className="min-w-0">

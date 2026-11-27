@@ -13,9 +13,9 @@ export default function MatchApp() {
   const { user, loading: authLoading } = useAuth();
   const openLogin = useUiStore((s) => s.openLogin);
 
-  function handleSelectSession(id: string) {
+  function handleSelectSession(id: string, slug: string) {
     selectSession(id);
-    router.push(`/sessions/${id}`);
+    router.push(`/sessions/${slug}`);
   }
 
   return authLoading ? (

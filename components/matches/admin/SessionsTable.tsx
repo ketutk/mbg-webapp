@@ -20,7 +20,7 @@ export function SessionsTable({
   isSuperadmin: boolean;
   currentSessionId: string | null;
   togglingId: string | null;
-  onSelectSession: (id: string) => void;
+  onSelectSession: (id: string, slug: string) => void;
   onHideDetail: () => void;
   onToggleStatus: (item: SessionListItem) => void;
   onRequestDelete: (item: SessionListItem) => void;
@@ -78,7 +78,7 @@ export function SessionsTable({
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => onSelectSession(item.id)}
+                      onClick={() => onSelectSession(item.id, item.slug)}
                       className="text-left font-bold text-[#204a74] hover:text-[#337fc4] hover:underline"
                     >
                       {item.name}
@@ -110,7 +110,9 @@ export function SessionsTable({
                       type="button"
                       className={btn(isCurrent ? "light" : "primary", "sm")}
                       onClick={() =>
-                        isCurrent ? onHideDetail() : onSelectSession(item.id)
+                        isCurrent
+                          ? onHideDetail()
+                          : onSelectSession(item.id, item.slug)
                       }
                     >
                       {isCurrent ? "Hide detail" : "View detail"}

@@ -114,7 +114,7 @@ export function TournamentList() {
           {tournaments.map((t) => (
             <Link
               key={t.id}
-              href={`/tournaments/${t.id}`}
+              href={`/tournaments/${t.slug}`}
               className={cx(
                 card,
                 "group flex flex-col justify-between gap-4 p-5 no-underline transition-all hover:-translate-y-0.5 hover:border-[#9ec8ee] hover:shadow-[0_14px_30px_#3b82c41a]",
@@ -160,7 +160,7 @@ export function TournamentList() {
           onClose={() => setCreating(false)}
           onCreated={(created) => {
             setCreating(false);
-            router.push(`/tournaments/${created.id}`);
+            router.push(`/tournaments/${created.slug}`);
           }}
         />
       )}

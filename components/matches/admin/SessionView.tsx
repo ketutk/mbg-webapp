@@ -234,7 +234,7 @@ export function SessionView({
             {linkedTournaments.map((t) => (
               <Link
                 key={t.id}
-                href={`/tournaments/${t.id}`}
+                href={`/tournaments/${t.slug}`}
                 className="inline-flex items-center gap-1.5 rounded-full border border-[#dcebf8] bg-white px-3 py-1 text-xs font-extrabold text-[#183e6b] no-underline hover:border-[#56a2e6]"
               >
                 <span>{t.name}</span>
@@ -404,7 +404,7 @@ export function SessionView({
           onClose={() => setCreatingTournament(false)}
           onCreated={(created) => {
             setCreatingTournament(false);
-            router.push(`/tournaments/${created.id}`);
+            router.push(`/tournaments/${created.slug}`);
           }}
         />
       )}

@@ -131,6 +131,7 @@ export function toSessionListItemDTO(
 ): SessionListItem {
   return {
     id: session.id,
+    slug: session.slug,
     name: session.name,
     date: toDateStr(session.date),
     courtCount: session.courtCount,
@@ -155,6 +156,7 @@ export function toSessionDTO(session: SessionWithRelations): Session {
 
   return {
     id: session.id,
+    slug: session.slug,
     name: session.name,
     date: toDateStr(session.date),
     courtCount: session.courtCount,
@@ -223,6 +225,7 @@ export function toSessionSummaryDTO(session: SessionWithRelations): SessionSumma
 
   return {
     id: session.id,
+    slug: session.slug,
     name: session.name,
     date: toDateStr(session.date),
     courtCount: session.courtCount,
@@ -310,11 +313,13 @@ export function toTournamentListItemDTO(
 
   return {
     id: t.id,
+    slug: t.slug,
     name: t.name,
     format: t.format,
     status: t.status,
     hasThirdPlace: t.hasThirdPlace,
     sessionId: t.sessionId,
+    sessionSlug: t.session.slug,
     sessionName: t.session.name,
     sessionDate: toDateStr(t.session.date),
     sessionStatus: t.session.status,
@@ -453,6 +458,7 @@ export function toTournamentDetailDTO(
 
   return {
     id: t.id,
+    slug: t.slug,
     name: t.name,
     format: t.format,
     status: t.status,
@@ -460,6 +466,7 @@ export function toTournamentDetailDTO(
     preferredCourts: t.preferredCourts,
     session: {
       id: t.session.id,
+      slug: t.session.slug,
       name: t.session.name,
       date: toDateStr(t.session.date),
       courtCount: t.session.courtCount,

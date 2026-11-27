@@ -50,7 +50,7 @@ export function SessionDialog({ onClose }: { onClose: () => void }) {
     try {
       const created = await createSession(parsed.data);
       onClose();
-      router.push(`/sessions/${created.id}`);
+      router.push(`/sessions/${created.slug}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create session");
     } finally {

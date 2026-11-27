@@ -33,7 +33,7 @@ export function SessionsDirectory({
 }: {
   user: AuthUser;
   currentSessionId: string | null;
-  onSelectSession: (id: string) => void;
+  onSelectSession: (id: string, slug: string) => void;
 }) {
   const showToast = useToast();
   const isSuperadmin = user.role === "SUPERADMIN";

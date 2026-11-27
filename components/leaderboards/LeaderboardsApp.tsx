@@ -145,7 +145,7 @@ export default function LeaderboardsApp() {
                 {data.sessions.map((item) => (
                   <Link
                     key={item.id}
-                    href={`/leaderboards/${item.id}`}
+                    href={`/leaderboards/${item.slug}`}
                     className={cx(
                       card,
                       "group flex flex-col justify-between p-5 no-underline transition-all duration-150 hover:-translate-y-0.5 hover:border-[#b9dbf7] hover:shadow-[0_14px_34px_#3a7fb81f]",

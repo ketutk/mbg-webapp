@@ -216,7 +216,7 @@ export function TournamentDetailApp({ id }: { id: string }) {
             ← All tournaments
           </Link>
           <Link
-            href={`/sessions/${tournament.session.id}`}
+            href={`/sessions/${tournament.session.slug}`}
             className={btn("primary")}
           >
             Open Session Courts →

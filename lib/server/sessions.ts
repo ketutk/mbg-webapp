@@ -1,5 +1,6 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
+import { buildBaseSlug, pickUniqueSlug } from "@/lib/slug";
 import { prisma } from "./db";
 import {
   fromDateStr,
@@ -183,15 +184,27 @@ export async function createSessionRecord(
 ): Promise<Session> {
   const uniquePlayers = dedupeNames(input.names);
   const nameKeys = uniquePlayers.map((p) => p.nameKey);
-  const savedTiers = nameKeys.length
-    ? await prisma.playerTier.findMany({
-        where: { nameKey: { in: nameKeys } },
-      })
-    : [];
+  const baseSlug = buildBaseSlug(input.name, input.date);
+  const [savedTiers, existingSlugs] = await Promise.all([
+    nameKeys.length
+      ? prisma.playerTier.findMany({
+          where: { nameKey: { in: nameKeys } },
+        })
+      : Promise.resolve([]),
+    prisma.session.findMany({
+      where: { slug: { startsWith: baseSlug } },
+      select: { slug: true },
+    }),
+  ]);
   const tierMap = new Map(savedTiers.map((t) => [t.nameKey, t.tier]));
+  const slug = pickUniqueSlug(
+    baseSlug,
+    existingSlugs.map((s) => s.slug),
+  );
 
   const created = await prisma.session.create({
     data: {
+      slug,
       name: input.name,
       date: fromDateStr(input.date),
       courtCount: input.courtCount,

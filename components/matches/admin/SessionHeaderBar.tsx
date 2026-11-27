@@ -47,7 +47,7 @@ export function SessionHeaderBar({
         <button type="button" className={btn("light")} onClick={onBackToList}>
           ← All sessions
         </button>
-        <Link href={`/leaderboards/${session.id}`} className={btn("light")}>
+        <Link href={`/leaderboards/${session.slug}`} className={btn("light")}>
           Leaderboard
         </Link>
         <button

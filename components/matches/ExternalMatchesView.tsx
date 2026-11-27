@@ -21,7 +21,7 @@ export function ExternalMatchesView({
   onSelectSession,
   onLogin,
 }: {
-  onSelectSession: (id: string) => void;
+  onSelectSession: (id: string, slug: string) => void;
   onLogin: () => void;
 }) {
   const [searchText, setSearchText] = useState("");
@@ -149,7 +149,7 @@ export function ExternalMatchesView({
             {data.sessions.map((item) => (
               <article
                 key={item.id}
-                onClick={() => onSelectSession(item.id)}
+                onClick={() => onSelectSession(item.id, item.slug)}
                 className={cx(
                   card,
                   "group flex cursor-pointer flex-col justify-between p-5 transition-all duration-150 hover:-translate-y-0.5 hover:border-[#b9dbf7] hover:shadow-[0_14px_34px_#3a7fb81f]",
